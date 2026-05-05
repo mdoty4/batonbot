@@ -1,11 +1,11 @@
 {
-  "name": "sequencer",
+  "name": "localchainai",
   "version": "1.0.0",
   "description": "Visual AI Agent Workflow Orchestrator - Design, visualize, and execute complex AI pipelines by chaining multiple prompts and agents into repeatable workflows.",
-  "main": "sequencer.js",
+  "main": "localchainai.js",
   "scripts": {
-    "start": "node sequencer.js",
-    "dev": "npx nodemon sequencer.js",
+    "start": "node localchainai.js",
+    "dev": "npx nodemon localchainai.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

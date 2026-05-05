@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  sequencer:
+  localchainai:
     build: .
-    container_name: sequencer
+    container_name: localchainai
     ports:
       - "4321:4321"
     env_file:

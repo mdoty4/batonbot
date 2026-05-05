@@ -24,13 +24,13 @@
                      }
                  }
 
-                 if (runningProjectName) {
-                    statusEl.textContent = `Running for ${runningProjectName}`;
-                    document.title = `Sequencer: Running for ${runningProjectName}`;
-                 } else {
-                     statusEl.textContent = 'Task Orchestrator';
-                     document.title = 'Sequencer: Task Orchestrator';
-                 }
+                  if (runningProjectName) {
+                     statusEl.textContent = `Running for ${runningProjectName}`;
+                     document.title = `LocalChain AI: Running for ${runningProjectName}`;
+                  } else {
+                      statusEl.textContent = 'Task Orchestrator';
+                      document.title = 'LocalChain AI: Task Orchestrator';
+                  }
              } catch (e) {
                  console.error('Error updating sequence status:', e);
              }

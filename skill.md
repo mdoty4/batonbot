@@ -1,15 +1,15 @@
 ---
-name: sequencer
+name: localchainai
 description: >-
-  Interact with Sequencer, the visual AI agent workflow orchestrator.
-  Use when Michael asks about: starting or stopping the Sequencer server,
+  Interact with LocalChain AI, the visual AI agent workflow orchestrator.
+  Use when Michael asks about: starting or stopping the LocalChain AI server,
   managing projects or tasks, creating pipelines, assigning agents (Cline/Aider),
-  checking API endpoints, configuring Sequencer via .env or web UI,
+  checking API endpoints, configuring LocalChain AI via .env or web UI,
   troubleshooting pipeline execution, or anything related to multi-agent
   orchestration and hybrid LLM routing.
 ---
 
-# Sequencer Skill
+# LocalChain AI Skill
 
 ## Quick Reference
 
@@ -180,7 +180,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
    curl http://localhost:4321/health
    ```
 
-2. **Create a project** (set `workingDirectory` to the target project, never the Sequencer dir itself):
+2. **Create a project** (set `workingDirectory` to the target project, never the LocalChain AI dir itself):
    ```bash
    curl -X POST http://localhost:4321/api/projects \
      -H "Content-Type: application/json" \
@@ -227,7 +227,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 4. **Check for common issues:**
    - Port conflict: `lsof -i :4321`
    - Invalid LLM API keys in Settings
-   - Working directory points to Sequencer itself (blocked by safety check)
+   - Working directory points to LocalChain AI itself (blocked by safety check)
    - Cline/Aider CLI not installed or not in PATH
 
 5. **Reset tasks and retry:**
@@ -263,9 +263,9 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 ## File Structure
 
 ```
-sequencerv2/
+localchainaiv2/
 ├── .env                    # Environment variables (PORT, LM_STUDIO_URL)
-├── sequencer.js                # Main server: Express routes, orchestration engine
+├── localchainai.js                # Main server: Express routes, orchestration engine
 ├── prompts.json            # Project state, tasks, agent config, execution state
 ├── app.js                  # Additional app logic
 ├── index.html              # Frontend entry point
@@ -295,9 +295,9 @@ sequencerv2/
 |---------|-----|
 | **Port 4321 already in use** | `lsof -ti :4321 \| xargs kill` then restart |
 | **Agent fails silently** | Check LLM API keys in Settings; verify CLI is in PATH |
-| **Working directory blocked** | Sequencer prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `sequencerv2` itself |
+| **Working directory blocked** | LocalChain AI prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `localchainaiv2` itself |
 | **Tasks don't auto-chain** | Only tasks with `orchestrate: true` auto-trigger the next task. Manual "Send" clicks do not chain |
-| **Cline edits files after completion** | Sequencer uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
+| **Cline edits files after completion** | LocalChain AI uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
 | **Server not responding** | Check `npm start` output for errors; verify `.env` has correct `PORT` |
 
 ---
@@ -306,7 +306,7 @@ sequencerv2/
 
 ```bash
 # Navigate to project
-cd /Users/michaeldoty/dev/preprod/sequencerv2
+cd /Users/michaeldoty/dev/preprod/localchainaiv2
 
 # Start server
 npm start
