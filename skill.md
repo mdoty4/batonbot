@@ -1,15 +1,15 @@
 ---
-name: localchainai
+name: batonbot
 description: >-
-  Interact with LocalChain AI, the visual AI agent workflow orchestrator.
-  Use when Michael asks about: starting or stopping the LocalChain AI server,
+  Interact with BatonBot, the visual AI agent workflow orchestrator.
+  Use when Michael asks about: starting or stopping the BatonBot server,
   managing projects or tasks, creating pipelines, assigning agents (Cline/Aider),
-  checking API endpoints, configuring LocalChain AI via .env or web UI,
+  checking API endpoints, configuring BatonBot via .env or web UI,
   troubleshooting pipeline execution, or anything related to multi-agent
   orchestration and hybrid LLM routing.
 ---
 
-# LocalChain AI Skill
+# BatonBot Skill
 
 ## Quick Reference
 
@@ -180,7 +180,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
    curl http://localhost:4321/health
    ```
 
-2. **Create a project** (set `workingDirectory` to the target project, never the LocalChain AI dir itself):
+2. **Create a project** (set `workingDirectory` to the target project, never the BatonBot dir itself):
    ```bash
    curl -X POST http://localhost:4321/api/projects \
      -H "Content-Type: application/json" \
@@ -227,7 +227,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 4. **Check for common issues:**
    - Port conflict: `lsof -i :4321`
    - Invalid LLM API keys in Settings
-   - Working directory points to LocalChain AI itself (blocked by safety check)
+    - Working directory points to BatonBot itself (blocked by safety check)
    - Cline/Aider CLI not installed or not in PATH
 
 5. **Reset tasks and retry:**
@@ -263,9 +263,9 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 ## File Structure
 
 ```
-localchainaiv2/
+batonbot/
 ├── .env                    # Environment variables (PORT, LM_STUDIO_URL)
-├── localchainai.js                # Main server: Express routes, orchestration engine
+├── batonbot.js                # Main server: Express routes, orchestration engine
 ├── prompts.json            # Project state, tasks, agent config, execution state
 ├── app.js                  # Additional app logic
 ├── index.html              # Frontend entry point
@@ -295,9 +295,9 @@ localchainaiv2/
 |---------|-----|
 | **Port 4321 already in use** | `lsof -ti :4321 \| xargs kill` then restart |
 | **Agent fails silently** | Check LLM API keys in Settings; verify CLI is in PATH |
-| **Working directory blocked** | LocalChain AI prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `localchainaiv2` itself |
+| **Working directory blocked** | BatonBot prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `batonbot` itself |
 | **Tasks don't auto-chain** | Only tasks with `orchestrate: true` auto-trigger the next task. Manual "Send" clicks do not chain |
-| **Cline edits files after completion** | LocalChain AI uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
+| **Cline edits files after completion** | BatonBot uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
 | **Server not responding** | Check `npm start` output for errors; verify `.env` has correct `PORT` |
 
 ---
@@ -306,7 +306,7 @@ localchainaiv2/
 
 ```bash
 # Navigate to project
-cd /Users/michaeldoty/dev/preprod/localchainaiv2
+cd /Users/michaeldoty/dev/preprod/batonbot
 
 # Start server
 npm start

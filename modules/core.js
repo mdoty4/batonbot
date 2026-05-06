@@ -26,10 +26,10 @@
 
                   if (runningProjectName) {
                      statusEl.textContent = `Running for ${runningProjectName}`;
-                     document.title = `LocalChain AI: Running for ${runningProjectName}`;
+                      document.title = `BatonBot: Running for ${runningProjectName}`;
                   } else {
                       statusEl.textContent = 'Task Orchestrator';
-                      document.title = 'LocalChain AI: Task Orchestrator';
+                      document.title = 'BatonBot: Task Orchestrator';
                   }
              } catch (e) {
                  console.error('Error updating sequence status:', e);

@@ -1,10 +1,10 @@
-# LocalChain AI: Visual AI Agent Workflow Orchestrator
+# BatonBot: Visual AI Agent Workflow Orchestrator
 
-LocalChain AI is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
+BatonBot is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
 
 ## 🚀 Core Concept: From Chatting to Sequencing
 
-Most developers use AI agents (like Cline or Aider) in a linear chat. LocalChain AI moves you to an **assembly line** model:
+Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot moves you to an **assembly line** model:
 1.  **Design**: Create a sequence of tasks (prompts).
 2.  **Assign**: Choose the best agent for each specific task.
 3.  **Start Sequence**: Execute the entire pipeline in one click, with real-time status tracking for every step.
@@ -25,7 +25,7 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. LocalChain
 
 I found myself manually coordinating workflows between LM Studio, coding agents, local models, and scripts. Repeating the same multi-step AI tasks became tedious.
 
-LocalChain AI is my attempt to turn those workflows into autonomous pipelines that work across both local and cloud-based models.
+BatonBot is my attempt to turn those workflows into autonomous pipelines that work across both local and cloud-based models.
 
 ---
 
@@ -35,7 +35,7 @@ LocalChain AI is my attempt to turn those workflows into autonomous pipelines th
 - [Quick Start](#quick-start)
 - [Docker Deployment](#docker-deployment)
 - [Configuration](#configuration)
-- [Using the LocalChain AI](#using-the-localchainai)
+- [Using BatonBot](#using-batonbot)
 - [OpenClaw Integration](#openclaw-integration)
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
@@ -56,8 +56,8 @@ LocalChain AI is my attempt to turn those workflows into autonomous pipelines th
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/mdoty4/localchainai.git
-    cd localchainai
+    git clone https://github.com/mdoty4/batonbot.git
+    cd batonbot
     ```
 
 2.  **Install dependencies**:
@@ -82,7 +82,7 @@ LocalChain AI is my attempt to turn those workflows into autonomous pipelines th
 
 ## 🐳 Docker Deployment
 
-Run LocalChain AI in a container with a single command:
+Run BatonBot in a container with a single command:
 
 ```bash
 docker compose up --build -d
@@ -124,7 +124,7 @@ docker compose down -v
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `4321` | Port the LocalChain AI server listens on |
+| `PORT` | `4321` | Port the BatonBot server listens on |
 | `LM_STUDIO_URL` | `http://localhost:1234/v1` | Base URL for LM Studio API |
 
 ### Agent Configuration
@@ -137,11 +137,11 @@ Configure your agents through the web UI at **Settings**:
 
 ---
 
-## 🎮 Using the LocalChain AI
+## 🎮 Using BatonBot
 
 ### 1. Setting up your Agent (e.g., Cline)
 
-To route an agent's requests through the LocalChain AI:
+To route an agent's requests through BatonBot:
 - Set the **API Provider** to `OpenAI Compatible`
 - Set the **Base URL** to `http://localhost:4321/`
 
@@ -154,20 +154,20 @@ To route an agent's requests through the LocalChain AI:
 
 ### 3. Executing the Sequence
 
-Click **▶ Start Sequence**. LocalChain AI will execute the selected prompts in order, managing the hand-off between agents and tracking progress in real-time.
+Click **▶ Start Sequence**. BatonBot will execute the selected prompts in order, managing the hand-off between agents and tracking progress in real-time.
 
 ---
 
 ## 🤖 OpenClaw Integration
 
-LocalChain AI includes a `skill.md` file that allows **OpenClaw** (and other AI agents) to discover and interact with LocalChain AI automatically. By providing the skill file, OpenClaw can:
+BatonBot includes a `skill.md` file that allows **OpenClaw** (and other AI agents) to discover and interact with BatonBot automatically. By providing the skill file, OpenClaw can:
 
-- **Start, stop, and restart** the LocalChain AI server
+- **Start, stop, and restart** the BatonBot server
 - **Create and manage** projects and pipelines
 - **Assign agents** and execute orchestration workflows
 - **Troubleshoot** failed pipelines and review session logs
 
-To use with OpenClaw, simply point it to the `skill.md` file in the project root. OpenClaw will use the defined workflows and API endpoints to control LocalChain AI programmatically.
+To use with OpenClaw, simply point it to the `skill.md` file in the project root. OpenClaw will use the defined workflows and API endpoints to control BatonBot programmatically.
 
 ---
 
@@ -278,8 +278,8 @@ Base URL: `http://localhost:4321`
 ## 🗺️ Project Structure
 
 ```
-localchainai/
-├── localchainai.js          # Main server: Express routes, agent orchestration, execution engine
+batonbot/
+├── batonbot.js              # Main server: Express routes, agent orchestration, execution engine
 ├── app.js                # Additional app logic
 ├── skill.md              # OpenClaw skill file for agent integration
 ├── index.html            # Frontend entry point
@@ -336,7 +336,7 @@ Example: `testbench_cline_task_0_2026-04-27T02-22-13.json`
 - [ ] **Enterprise Gateway**: Native support for OpenAI, Anthropic, and Azure API keys.
 - [ ] **Template Library**: Shareable "Golden Pipelines" for common development tasks.
 - [ ] **Conditional Logic**: Branching pipelines based on the output of a previous step.
-- [ ] **MCP Server**: Expose LocalChain AI capabilities as MCP tools for AI agents.
+- [ ] **MCP Server**: Expose BatonBot capabilities as MCP tools for AI agents.
 
 ---
 

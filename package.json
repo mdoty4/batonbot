@@ -1,11 +1,11 @@
 {
-  "name": "localchainai",
+  "name": "batonbot",
   "version": "1.0.0",
   "description": "Visual AI Agent Workflow Orchestrator - Design, visualize, and execute complex AI pipelines by chaining multiple prompts and agents into repeatable workflows.",
-  "main": "localchainai.js",
+  "main": "batonbot.js",
   "scripts": {
-    "start": "node localchainai.js",
-    "dev": "npx nodemon localchainai.js",
+    "start": "node batonbot.js",
+    "dev": "npx nodemon batonbot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

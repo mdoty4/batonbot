@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  localchainai:
+  batonbot:
     build: .
-    container_name: localchainai
+    container_name: batonbot
     ports:
       - "4321:4321"
     env_file:

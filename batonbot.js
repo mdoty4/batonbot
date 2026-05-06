@@ -601,9 +601,9 @@ app.get('/health', (req, res) => {
 // ── Working Directory Safety ─────────────────────────────────────────
 
 /**
- * Resolve a working directory path and validate it is NOT the LocalChain AI directory
+ * Resolve a working directory path and validate it is NOT the BatonBot directory
  * or any parent of it. This prevents an agent from accidentally modifying
- * LocalChain AI's own codebase (index.js, prompts.json, modules/, etc.).
+ * BatonBot's own codebase (index.js, prompts.json, modules/, etc.).
  *
  * @param {string} cwd - The working directory (may be relative)
  * @param {string} projectId - Project ID for logging context
@@ -611,29 +611,29 @@ app.get('/health', (req, res) => {
  */
 function validateWorkingDirectory(cwd, projectId) {
   const resolved = path.resolve(cwd);
-  const localchainaiDir = path.resolve(__dirname);
+  const batonbotDir = path.resolve(__dirname);
 
-  // Fall back to '.' resolves to LocalChain AI's own directory - log a warning
+  // Fall back to '.' resolves to BatonBot's own directory - log a warning
   if (cwd === '.' || cwd === '') {
-    console.warn(`[ISOLATION] Project ${projectId} has no explicit workingDirectory - defaulting to '.' which resolves to the LocalChain AI directory (${localchainaiDir}). Agent will run here, which may corrupt LocalChain AI files.`);
+    console.warn(`[ISOLATION] Project ${projectId} has no explicit workingDirectory - defaulting to '.' which resolves to the BatonBot directory (${batonbotDir}). Agent will run here, which may corrupt BatonBot files.`);
   }
 
-  // Block if the resolved path IS the LocalChain AI directory
-  if (resolved === localchainaiDir) {
+  // Block if the resolved path IS the BatonBot directory
+  if (resolved === batonbotDir) {
     return {
       cwd: resolved,
       safe: false,
-      reason: `Working directory (${resolved}) is the LocalChain AI directory itself. Refusing to run agent to prevent self-corruption.`
+      reason: `Working directory (${resolved}) is the BatonBot directory itself. Refusing to run agent to prevent self-corruption.`
     };
   }
 
-  // Block if the resolved path is a PARENT of the LocalChain AI directory
-  // (e.g., /Users/michaeldoty/dev/preprod contains localchainaiv2)
-  if (localchainaiDir.startsWith(resolved + path.sep) || localchainaiDir.startsWith(resolved + '/')) {
+  // Block if the resolved path is a PARENT of the BatonBot directory
+  // (e.g., /Users/michaeldoty/dev/preprod contains batonbot)
+  if (batonbotDir.startsWith(resolved + path.sep) || batonbotDir.startsWith(resolved + '/')) {
     return {
       cwd: resolved,
       safe: false,
-      reason: `Working directory (${resolved}) is a parent of the LocalChain AI directory. Refusing to run agent to prevent accidental edits to LocalChain AI files.`
+      reason: `Working directory (${resolved}) is a parent of the BatonBot directory. Refusing to run agent to prevent accidental edits to BatonBot files.`
     };
   }
 
@@ -859,11 +859,11 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   const cmdObj = agent.getCommand(task.prompt, config, taskIndex);
   
-  // Strip LocalChain AI-specific env vars to prevent child apps from inheriting our configuration.
-  // - PORT: When Cline runs `npm run dev`, the child app inherits PORT=4321 (the localchainai's port),
+  // Strip BatonBot-specific env vars to prevent child apps from inheriting our configuration.
+  // - PORT: When Cline runs `npm run dev`, the child app inherits PORT=4321 (the batonbot's port),
   //   causing it to try binding to the same port, resulting in EADDRINUSE crashes.
-  // - LM_STUDIO_URL: Prevents child projects from accidentally using LocalChain AI's AI backend config.
-  const { PORT: _localchainaiPort, LM_STUDIO_URL: _lmStudioUrl, ...inheritedEnv } = process.env;
+  // - LM_STUDIO_URL: Prevents child projects from accidentally using BatonBot's AI backend config.
+  const { PORT: _batonbotPort, LM_STUDIO_URL: _lmStudioUrl, ...inheritedEnv } = process.env;
   const env = { ...inheritedEnv, ...agent.getEnv(config) };
 
   // Log session start if it's Cline (maintaining existing behavior)
@@ -1043,7 +1043,7 @@ function executeTaskWithAutoChain(projectId, taskIndex) {
 
   const cwd = project.workingDirectory || '.';
 
-  // Safety check: prevent agent from running in LocalChain AI's directory
+  // Safety check: prevent agent from running in BatonBot's directory
   const validation = validateWorkingDirectory(cwd, projectId);
   if (!validation.safe) {
     console.error(`[ISOLATION] Blocked: ${validation.reason}`);
@@ -1096,7 +1096,7 @@ async function triggerAgentSingle(projectId, taskIndex) {
 
   const cwd = project.workingDirectory || '.';
 
-  // Safety check: prevent agent from running in LocalChain AI's directory
+  // Safety check: prevent agent from running in BatonBot's directory
   const validation = validateWorkingDirectory(cwd, projectId);
   if (!validation.safe) {
     console.error(`[ISOLATION] Blocked: ${validation.reason}`);
@@ -1240,7 +1240,7 @@ app.post('/api/cline/headless', async (req, res) => {
 
   const cwd = workingDirectory || '.';
 
-  // Safety check: prevent headless agent from running in LocalChain AI's directory
+  // Safety check: prevent headless agent from running in BatonBot's directory
   const headlessValidation = validateWorkingDirectory(cwd, projectId || 'headless');
   if (!headlessValidation.safe) {
     console.error(`[ISOLATION] Headless blocked: ${headlessValidation.reason}`);
@@ -1280,8 +1280,8 @@ app.post('/api/cline/headless', async (req, res) => {
 
   console.log(`[HEADLESS CLINE] Command: ${cmdObj.command} ${cmdObj.args.join(' ')}`);
 
-  // Strip LocalChain AI-specific env vars to prevent child apps from inheriting our configuration.
-  const { PORT: _localchainaiPort2, LM_STUDIO_URL: _lmStudioUrl2, ...inheritedEnvHeadless } = process.env;
+  // Strip BatonBot-specific env vars to prevent child apps from inheriting our configuration.
+  const { PORT: _batonbotPort2, LM_STUDIO_URL: _lmStudioUrl2, ...inheritedEnvHeadless } = process.env;
   const child = spawn(cmdObj.command, cmdObj.args, {
     cwd,
     env: inheritedEnvHeadless,
@@ -2063,7 +2063,7 @@ app.post('/api/telegram/test', async (req, res) => {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
     const resp = await axios.post(url, {
       chat_id: chatId,
-      text: '<b>✓ LocalChain AI Telegram Connected!</b>\n\nYou can now send prompts to yourself via Telegram Messenger.',
+      text: '<b>✓ BatonBot Telegram Connected!</b>\n\nYou can now send prompts to yourself via Telegram Messenger.',
       parse_mode: 'HTML'
     });
 
