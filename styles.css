@@ -215,6 +215,8 @@
         /* ── Agent Badges ── */
         .agent-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px; font-weight: 700; font-size: 0.68rem; letter-spacing: 0.3px; cursor: default; user-select: none; }
         .agent-badge.aider { background: #9b59b6; color: white; }
+        .agent-badge.baton-code { background: #27ae60; color: white; }
+        .agent-badge.baton-code-thinking { background: linear-gradient(135deg, #27ae60, #2ecc71); color: white; box-shadow: 0 0 8px rgba(39,174,96,0.4); }
         .agent-badge.cline { background: #e67e22; color: white; }
         .agent-badge.telegram { background: #0088cc; color: white; }
         .prompt-actions { display: flex; flex-direction: column; gap: 5px; align-items: center; }
@@ -417,6 +419,18 @@
         .config-input { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.88rem; box-sizing: border-box; transition: border-color 0.2s; }
         .config-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 2px rgba(102,126,234,0.15); }
         .config-input::placeholder { color: #aaa; }
+        /* ── Provider/Model Dropdowns (select elements using .config-input) ── */
+        select.config-input {
+            appearance: none;
+            background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8.5L1 3.5h10z'/%3E%3C/svg%3E") no-repeat right 12px center;
+            background-size: 12px;
+            padding-right: 32px;
+            cursor: pointer;
+        }
+        select.config-input:focus {
+            background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 8.5L1 3.5h10z'/%3E%3C/svg%3E") no-repeat right 12px center;
+            background-size: 12px;
+        }
         .config-hint { display: block; margin-top: 4px; font-size: 0.76rem; color: #888; }
         .config-select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.88rem; background: #fff; cursor: pointer; box-sizing: border-box; }
         .config-select:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 2px rgba(102,126,234,0.15); }
@@ -907,4 +921,210 @@
         }
         .chat-message.assistant-message p {
             margin: 0.25rem 0;
+        }
+
+        /* ── MCP Server Cards ── */
+        .mcp-server-card {
+            border: 1px solid #e0e4e8;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background: #fafbfc;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .mcp-server-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102,126,234,0.1);
+        }
+        .mcp-server-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .mcp-server-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #333;
+        }
+        .mcp-server-card-title .server-icon {
+            font-size: 1.2rem;
+        }
+        .mcp-server-card-desc {
+            font-size: 0.82rem;
+            color: #666;
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
+        }
+        .mcp-server-card-tools {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 0.75rem;
+        }
+        .mcp-tool-tag {
+            display: inline-block;
+            background: #e8ecf4;
+            color: #4a5568;
+            font-size: 0.72rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Menlo', monospace;
+        }
+        .mcp-server-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .mcp-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #555;
+            cursor: pointer;
+        }
+        .mcp-toggle-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+        .mcp-status-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .mcp-status-badge.enabled {
+            background: #d4edda;
+            color: #155724;
+        }
+        .mcp-status-badge.disabled {
+            background: #f0f0f0;
+            color: #999;
+        }
+        .mcp-install-note {
+            font-size: 0.78rem;
+            color: #e67e22;
+            background: #fef9f0;
+            border: 1px solid #fde4b8;
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            margin-top: 0.5rem;
+            line-height: 1.4;
+        }
+        .mcp-install-note code {
+            background: #f0ebe0;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Menlo', monospace;
+            font-size: 0.75rem;
+        }
+
+        /* ── Thinking Toggle (in task rows) ── */
+        .thinking-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            margin-left: 8px;
+            border-radius: 6px;
+            background: #f8f9fa;
+            border: 1px solid #e0e4e8;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .thinking-toggle:hover {
+            border-color: #667eea;
+            color: #333;
+        }
+        .thinking-toggle input[type="checkbox"] {
+            accent-color: #667eea;
+            cursor: pointer;
+        }
+        .thinking-toggle input[type="checkbox"]:checked ~ .thinking-label {
+            color: #667eea;
+        }
+        .thinking-label {
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        /* ── Thinking Container (in output) ── */
+        .thinking-container {
+            margin: 12px 0;
+            border-radius: 8px;
+            border: 1px solid #e0e4e8;
+            background: #fff;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .thinking-container.complete {
+            border-color: #667eea;
+        }
+        .thinking-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            user-select: none;
+            background: #f8f9fa;
+            transition: background 0.2s ease;
+        }
+        .thinking-header:hover {
+            background: #eef0ff;
+        }
+        .thinking-icon {
+            font-size: 16px;
+            animation: thinking-pulse 2s ease-in-out infinite;
+        }
+        .thinking-container.complete .thinking-icon {
+            animation: none;
+        }
+        .thinking-title {
+            flex: 1;
+            font-size: 13px;
+            color: #666;
+            font-weight: 500;
+        }
+        .thinking-container.complete .thinking-title {
+            color: #667eea;
+        }
+        .thinking-toggle-btn {
+            font-size: 10px;
+            color: #888;
+            transition: transform 0.3s ease;
+        }
+        .thinking-container.collapsed .thinking-toggle-btn {
+            transform: rotate(-90deg);
+        }
+        .thinking-content {
+            padding: 12px 14px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #666;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            transition: all 0.3s ease;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Menlo', monospace;
+        }
+        .thinking-container.collapsed .thinking-content {
+            display: none;
+        }
+        @keyframes thinking-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }

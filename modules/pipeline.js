@@ -31,22 +31,24 @@
                 // Setup drag-and-drop on the editor container
                 setupDragAndDrop();
 
+
                 updateOrchestrationButton();
             } catch (e) {
                 console.error('Error loading pipeline:', e);
             }
         }
 
-        function createPromptRow(task, index) {
-            const row = document.createElement('div');
-            const stateClass = task.state || 'pending';
-            row.className = `prompt-row ${task.orchestrate ? 'selected' : ''} ${stateClass}`;
-            row.dataset.index = index;
-            row.draggable = false; // We manage this manually during drag
+         function createPromptRow(task, index) {
+             const row = document.createElement('div');
+             const stateClass = task.state || 'pending';
+             row.className = `prompt-row ${task.orchestrate ? 'selected' : ''} ${stateClass}`;
+             row.dataset.index = index;
+             row.draggable = false; // We manage this manually during drag
 
-            const agentClass = task.agent || 'aider';
-            const agentLabels = { aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
-            const agentLabel = agentLabels[agentClass] || 'AIDER';
+             // Use task.agent directly — baton-code-thinking is a first-class agent
+             const dropdownValue = task.agent || 'aider';
+             const agentLabels = { 'baton-code': 'BATON-CODE', 'baton-code-thinking': 'BATON-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+             const agentLabel = agentLabels[dropdownValue] || 'AIDER';
 
             row.innerHTML = `
                 <div class="drag-handle" title="Drag to reorder">⠿</div>
@@ -55,7 +57,7 @@
                     <div class="prompt-text-display" data-prompt-index="${index}">${escapeHtml(task.prompt || '<em style="color:#aaa">Click to edit prompt...</em>')}</div>
                     <div class="prompt-meta">
                         <span class="status-indicator ${stateClass}">${{ pending: 'Pending', in_progress: 'Running', done: 'Done', failed: 'Ended', stopped: 'Ended' }[stateClass] || stateClass}</span>
-                        <span class="agent-badge ${agentClass}">${agentLabel}</span>
+                        <span class="agent-badge ${dropdownValue}">${agentLabel}</span>
                     </div>
                 </div>
                 <div class="prompt-actions">
@@ -63,11 +65,13 @@
                         <input type="checkbox" data-prompt-index="${index}" ${task.orchestrate ? 'checked' : ''} class="orchestrate-checkbox">
                         <span class="toggle-slider"></span>
                     </label>
-                    <select class="agent-select ${agentClass}" data-prompt-index="${index}" title="Select agent for this task">
-                        <option value="aider" ${agentClass === 'aider' ? 'selected' : ''}>Aider</option>
-                        <option value="cline" ${agentClass === 'cline' ? 'selected' : ''}>Cline</option>
-                        <option value="telegram" ${agentClass === 'telegram' ? 'selected' : ''}>Telegram</option>
-                    </select>
+                      <select class="agent-select ${dropdownValue}" data-prompt-index="${index}" title="Select agent for this task">
+                          <option value="baton-code" ${dropdownValue === 'baton-code' ? 'selected' : ''}>Baton Code</option>
+                          <option value="baton-code-thinking" ${dropdownValue === 'baton-code-thinking' ? 'selected' : ''}>Baton Code - Thinking</option>
+                          <option value="aider" ${dropdownValue === 'aider' ? 'selected' : ''}>Aider</option>
+                          <option value="cline" ${dropdownValue === 'cline' ? 'selected' : ''}>Cline</option>
+                          <option value="telegram" ${dropdownValue === 'telegram' ? 'selected' : ''}>Telegram</option>
+                      </select>
                     <button class="btn btn-init" data-prompt-index="${index}" title="Initialize git repository in project directory">⌘ Init</button>
                     <button class="btn btn-aider" data-prompt-index="${index}" title="Send this prompt to the selected agent immediately">▶ Send</button>
                     <button class="btn btn-danger" data-prompt-index="${index}" title="Remove prompt">-</button>
@@ -854,7 +858,7 @@
             const badge = row.querySelector('.agent-badge');
             if (badge) {
                 badge.className = 'agent-badge ' + value;
-                const labels = { aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+                const labels = { 'baton-code': 'BATON-CODE', 'baton-code-thinking': 'BATON-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
                 badge.textContent = labels[value] || 'AIDER';
             }
             // Update the select visual
@@ -884,7 +888,7 @@
                     console.error('Failed to save agent change');
                     // Revert the UI if save failed
                     if (badge) {
-                        const labels = { aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+                        const labels = { 'baton-code': 'BATON-CODE', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
                         badge.className = 'agent-badge aider';
                         badge.textContent = 'AIDER';
                     }
@@ -959,7 +963,8 @@
             const agentSelect = row.querySelector('.agent-select');
             const index = Array.from(row.parentElement.children).indexOf(row);
             const promptText = displayEl ? displayEl.textContent.trim() : '';
-            const agent = agentSelect ? agentSelect.value : 'aider';
+            const rawAgent = agentSelect ? agentSelect.value : 'aider';
+            const agent = rawAgent;
             
             if (!promptText) {
                 alert('Please enter a prompt first');

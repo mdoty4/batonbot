@@ -10,5 +10,16 @@
   "telegramConfig": {
     "botToken": "",
     "chatId": ""
-  }
+  },
+  "mcpServers": [
+    {
+      "name": "git",
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/mcp-server-git"],
+      "_description": "Official Git MCP Server by Anthropic — provides git_commit, git_push, git_diff, git_log, git_branch, git_status tools",
+      "_installation": "Run 'npm install -g @anthropic-ai/mcp-server-git' or use npx (as shown above). The server will be auto-installed on first use when using npx."
+    }
+  ]
 }

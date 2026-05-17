@@ -94,12 +94,14 @@
                         <button class="btn-orchestrate" id="btn-start-orchestration">▶ Start Sequence</button>
                         <button class="btn-stop-sequence" id="btn-stop-sequence" disabled>⏹ Stop Sequence</button>
                         <button class="btn-reset-tasks" id="btn-reset-tasks">↻ Reset Tasks</button>
-                        <select class="agent-select-all" id="assign-all-agents" title="Assign agent to all tasks">
-                            <option value="">— Assign All —</option>
-                            <option value="aider">Aider</option>
-                            <option value="cline">Cline</option>
-                            <option value="telegram">Telegram</option>
-                        </select>
+                          <select class="agent-select-all" id="assign-all-agents" title="Assign agent to all tasks">
+                              <option value="">— Assign All —</option>
+                              <option value="baton-code">Baton Code</option>
+                              <option value="baton-code-thinking">Baton Code - Thinking</option>
+                              <option value="aider">Aider</option>
+                              <option value="cline">Cline</option>
+                              <option value="telegram">Telegram</option>
+                          </select>
                         <div class="orchestration-status" id="orchestration-status"></div>
                     </div>
                     
@@ -162,12 +164,25 @@
                         <button class="drawer-tab-btn active" data-drawer-tab="global">🌐 Global Config</button>
                         <button class="drawer-tab-btn" data-drawer-tab="project">📁 Per-Project Config</button>
                         <button class="drawer-tab-btn" data-drawer-tab="telegram">📨 Telegram</button>
+                        <button class="drawer-tab-btn" data-drawer-tab="mcp">🔌 MCP Servers</button>
                     </div>
                     <div class="drawer-body">
                         <!-- Global Config Tab -->
                         <div id="settings-tab-global" class="drawer-tab-content active">
                             <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure the LLM service settings globally. These defaults will be used when triggering agents for projects (unless project-level overrides are set).</p>
                             <div class="config-section">
+                                <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.88rem;">Provider</label>
+                                <select id="config-provider" class="config-input">
+                                    <option value="custom">Custom (Manual)</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="gemini">Google Gemini</option>
+                                    <option value="x-ai">X AI (Grok)</option>
+                                </select>
+                                <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Select your AI service provider. API Base URL and Model will auto-populate.</small>
+                            </div>
+
+                            <div class="config-section" style="margin-top: 1rem;">
                                 <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.88rem;">API Base URL</label>
                                 <input type="text" id="config-apiBase" placeholder="http://localhost:1234/v1" class="config-input">
                                 <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Example: http://localhost:1234/v1 (LM Studio), https://api.openai.com/v1</small>
@@ -180,9 +195,8 @@
                             </div>
 
                             <div class="config-section" style="margin-top: 1rem;">
-                                <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.88rem;">Model Name</label>
-                                <input type="text" id="config-model" placeholder="Qwen3.6-35b-a3b-a3b" class="config-input">
-                                <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">The model to use with agents</small>
+                                <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.88rem;">Model</label>
+                                <input type="text" id="config-model" placeholder="Auto-filled from provider, or type a custom model" class="config-input">
                             </div>
 
                             <div class="config-section" style="margin-top: 1rem;">
@@ -213,6 +227,22 @@
 
                             <div id="project-config-fields" style="display: none;">
                                 <div class="config-section">
+                                    <label style="display: flex; align-items: center; justify-content: space-between;">
+                                        <span style="font-size: 0.88rem;">Provider</span>
+                                        <span id="project-provider-badge" class="override-badge" style="display: none;">OVERRIDDEN</span>
+                                    </label>
+                                    <select id="project-config-provider" class="config-input">
+                                        <option value="">(inherits global)</option>
+                                        <option value="custom">Custom (Manual)</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="anthropic">Anthropic</option>
+                                        <option value="gemini">Google Gemini</option>
+                                        <option value="x-ai">X AI (Grok)</option>
+                                    </select>
+                                    <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Leave empty to use global default</small>
+                                </div>
+
+                                <div class="config-section" style="margin-top: 1rem;">
                                     <label style="display: flex; align-items: center; justify-content: space-between;">
                                         <span style="font-size: 0.88rem;">API Base URL</span>
                                         <span id="project-apiBase-badge" class="override-badge" style="display: none;">OVERRIDDEN</span>
@@ -267,6 +297,67 @@
                             <div class="config-actions" style="margin-top: 1.5rem;">
                                 <button class="btn btn-success" id="btn-save-telegram-config">💾 Save Telegram Config</button>
                                 <button class="btn" id="btn-test-telegram" style="background: #0088cc; color: white;">✈️ Send Test Message</button>
+                            </div>
+                        </div>
+
+                        <!-- MCP Servers Tab -->
+                        <div id="settings-tab-mcp" class="drawer-tab-content">
+                            <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure MCP (Model Context Protocol) servers to extend the Baton Code agent with additional tools. Enabled servers will be connected automatically when running Baton Code tasks.</p>
+
+                            <!-- Git MCP Server Card -->
+                            <div class="mcp-server-card" id="mcp-server-git">
+                                <div class="mcp-server-header">
+                                    <div class="mcp-server-title">
+                                        <span class="mcp-server-icon">📦</span>
+                                        <div>
+                                            <strong>Git MCP Server</strong>
+                                            <span class="mcp-server-status" id="mcp-git-status">disabled</span>
+                                        </div>
+                                    </div>
+                                    <label class="mcp-toggle-switch">
+                                        <input type="checkbox" id="mcp-git-enabled">
+                                        <span class="mcp-toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="mcp-server-details">
+                                    <p class="mcp-server-description">Official Git MCP Server by Anthropic. Provides Git version control tools for the Baton Code agent.</p>
+                                    <div class="mcp-server-tools">
+                                        <strong>Available tools:</strong>
+                                        <span class="mcp-tool-tag">git_commit</span>
+                                        <span class="mcp-tool-tag">git_push</span>
+                                        <span class="mcp-tool-tag">git_diff</span>
+                                        <span class="mcp-tool-tag">git_log</span>
+                                        <span class="mcp-tool-tag">git_branch</span>
+                                        <span class="mcp-tool-tag">git_status</span>
+                                    </div>
+                                    <div class="mcp-server-config">
+                                        <div class="config-section">
+                                            <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.82rem;">Command</label>
+                                            <input type="text" id="mcp-git-command" value="npx" class="config-input" style="font-size: 0.82rem;">
+                                        </div>
+                                        <div class="config-section" style="margin-top: 0.75rem;">
+                                            <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.82rem;">Arguments (JSON array)</label>
+                                            <input type="text" id="mcp-git-args" value='["-y", "@anthropic-ai/mcp-server-git"]' class="config-input" style="font-size: 0.82rem; font-family: monospace;">
+                                            <small style="color: #888; display: block; margin-top: 4px; font-size: 0.72rem;">JSON array of arguments passed to the command</small>
+                                        </div>
+                                    </div>
+                                    <div class="mcp-installation-guide">
+                                        <strong>📋 Installation:</strong>
+                                        <p>The Git MCP server requires Node.js. Installation options:</p>
+                                        <ol>
+                                            <li><strong>Global install (recommended):</strong> <code>npm install -g @anthropic-ai/mcp-server-git</code> then use command: <code>mcp-server-git</code></li>
+                                            <li><strong>Use npx (default):</strong> Command: <code>npx</code>, Args: <code>["-y", "@anthropic-ai/mcp-server-git"]</code> — auto-installs on first use</li>
+                                        </ol>
+                                        <p><small>More info: <a href="https://github.com/anthropics/mcp-servers" target="_blank">github.com/anthropics/mcp-servers</a></small></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="mcp-save-result" style="margin-top: 1rem; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; display: none;"></div>
+
+                            <div class="config-actions" style="margin-top: 1.5rem;">
+                                <button class="btn btn-success" id="btn-save-mcp-config">💾 Save MCP Config</button>
+                                <button class="btn" id="btn-test-mcp-git" style="background: #8e44ad; color: white;">🔌 Test Git Server</button>
                             </div>
                         </div>
                     </div>
@@ -349,8 +440,10 @@
                  <div class="config-section">
                      <label class="config-label">Default Agent</label>
                      <select id="editor-project-defaultAgent" class="config-select">
+                         <option value="baton-code">🟢 Baton Code</option>
                          <option value="aider">🟣 Aider</option>
                          <option value="cline">🟠 Cline</option>
+                         <option value="telegram">📨 Telegram</option>
                      </select>
                      <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Agent used when running tasks for this project</small>
                  </div>
@@ -360,6 +453,19 @@
                  <h3 style="font-size: 0.95rem; color: #667eea; margin-bottom: 1rem;">API Override Settings</h3>
                  <p style="color: #666; font-size: 0.82rem; margin-bottom: 1rem;">Leave empty to use global defaults.</p>
 
+
+                 <div class="config-section">
+                     <label class="config-label">Provider</label>
+                     <select id="editor-provider" class="config-select">
+                         <option value="">(inherits global)</option>
+                         <option value="custom">Custom (Manual)</option>
+                         <option value="openai">OpenAI</option>
+                         <option value="anthropic">Anthropic</option>
+                         <option value="gemini">Google Gemini</option>
+                         <option value="x-ai">X AI (Grok)</option>
+                     </select>
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Leave empty to use global default</small>
+                 </div>
                  <div class="config-section">
                      <label class="config-label">API Base URL</label>
                      <input type="text" id="editor-apiBase" class="config-input" placeholder="(inherits global)">

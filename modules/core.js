@@ -2,12 +2,74 @@
            Core — App initialization, tab switching, proxy polling, settings
            ═══════════════════════════════════════════ */
 
-         /* ── Update sequence status text in header ── */
-         async function updateSequenceStatus() {
-             const statusEl = document.getElementById('sequence-status-text');
-             if (!statusEl) return;
+        /* ── Provider Definitions ── */
+        const PROVIDERS = {
+            custom: {
+                name: 'Custom (Manual)',
+                apiBase: '',
+                models: [],
+                defaultModel: ''
+            },
+            openai: {
+                name: 'OpenAI',
+                apiBase: 'https://api.openai.com/v1',
+                models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+                defaultModel: 'gpt-4o'
+            },
+            anthropic: {
+                name: 'Anthropic',
+                apiBase: 'https://api.anthropic.com',
+                models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
+                defaultModel: 'claude-sonnet-4-20250514'
+            },
+            gemini: {
+                name: 'Google Gemini',
+                apiBase: 'https://generativelanguage.googleapis.com/v1beta/openai',
+                models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+                defaultModel: 'gemini-2.5-pro'
+            },
+            'x-ai': {
+                name: 'X AI (Grok)',
+                apiBase: 'https://api.x.ai/v1',
+                models: ['grok-2', 'grok-2-mini', 'grok-3'],
+                defaultModel: 'grok-2'
+            }
+        };
 
-             try {
+        /* ── Handle Provider Change ── */
+        function onProviderChange(provider, scope) {
+            const providerData = PROVIDERS[provider];
+            if (!providerData) return;
+
+            // Determine which elements to update based on scope
+            let prefix;
+            if (scope === 'project') {
+                prefix = 'project-config-';
+            } else if (scope === 'editor') {
+                prefix = 'editor-';
+            } else {
+                prefix = 'config-';
+            }
+
+            // Auto-populate API Base URL with provider's default
+            const apiBaseInput = document.getElementById(`${prefix}apiBase`);
+            if (apiBaseInput) {
+                apiBaseInput.value = providerData.apiBase;
+            }
+
+            // Set model input to provider's default model
+            const modelInput = document.getElementById(`${prefix}model`);
+            if (modelInput) {
+                modelInput.value = providerData.defaultModel;
+            }
+        }
+
+        /* ── Update sequence status text in header ── */
+        async function updateSequenceStatus() {
+            const statusEl = document.getElementById('sequence-status-text');
+            if (!statusEl) return;
+
+            try {
                  const response = await fetch('/api/projects');
                  if (!response.ok) return;
                  const data = await response.json();
@@ -72,8 +134,9 @@
                 window.loadChat();
             }
 
-            // Load config when switching to log-viewer tab (to show settings drawer)
-            if (tabId === 'log-viewer' && !configLoaded) loadConfig();
+            // Reload config every time the user navigates to the log-viewer tab
+            // so the settings drawer always shows the latest saved values
+            if (tabId === 'log-viewer') loadConfig();
 
             // When switching to Projects tab, refresh pipeline state indicators
             // so prompt statuses are in sync with the server (important when a
@@ -103,14 +166,22 @@
         }
 
         // Settings / Configuration
-        let configLoaded = false;
-
         async function loadConfig() {
-            if (configLoaded) return;
             try {
                 const response = await fetch('/api/config');
                 const data = await response.json();
                 const config = data.aiderConfig || {};
+
+                // Load provider FIRST so onProviderChange can auto-populate defaults
+                const providerSelect = document.getElementById('config-provider');
+                if (providerSelect && config.provider) {
+                    providerSelect.value = config.provider;
+                    // Trigger the provider change handler to auto-populate defaults
+                    onProviderChange(config.provider, 'global');
+                }
+
+                // THEN overwrite with saved values so user's custom settings take precedence
+                // over provider defaults. Order matters: saved values must come LAST.
                 document.getElementById('config-apiBase').value = config.apiBase || '';
                 document.getElementById('config-apiKey').value = config.apiKey || '';
                 document.getElementById('config-model').value = config.model || '';
@@ -119,17 +190,18 @@
                 if (maxTokensSelect && config.maxTokens) {
                     maxTokensSelect.value = config.maxTokens;
                 }
+
                 // Load Telegram config as well
                 if (typeof loadTelegramConfig === 'function') {
                     loadTelegramConfig();
                 }
-                configLoaded = true;
             } catch (e) {
                 console.error('Error loading config:', e);
             }
         }
 
         async function saveConfig() {
+            const provider = document.getElementById('config-provider').value;
             const apiBase = document.getElementById('config-apiBase').value.trim();
             const apiKey = document.getElementById('config-apiKey').value.trim();
             const model = document.getElementById('config-model').value.trim();
@@ -139,7 +211,7 @@
                 const response = await fetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ aiderConfig: { apiBase, apiKey, model, maxTokens } })
+                    body: JSON.stringify({ aiderConfig: { provider, apiBase, apiKey, model, maxTokens } })
                 });
                 if (response.ok) {
                     alert('Configuration saved successfully!');
@@ -184,11 +256,27 @@
             if (saveConfigBtn) {
                 saveConfigBtn.addEventListener('click', saveConfig);
             }
+
+            // Provider change handler
+            const providerSelect = document.getElementById('config-provider');
+            if (providerSelect) {
+                providerSelect.addEventListener('change', function() {
+                    onProviderChange(this.value, 'global');
+                });
+            }
         }
 
-        // Bind listeners once DOM is ready (defer scripts guarantee this runs after DOM)
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', bindCoreEventListeners);
-        } else {
+        // Bind listeners and load config once DOM is ready
+        function initCore() {
             bindCoreEventListeners();
+            // Auto-load global LLM configuration on page load so settings fields
+            // are populated immediately after a refresh/restart, without requiring
+            // the user to navigate to the Logs & Settings tab first.
+            loadConfig();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initCore);
+        } else {
+            initCore();
         }

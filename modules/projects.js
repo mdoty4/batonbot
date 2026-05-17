@@ -156,9 +156,15 @@
 
                 // Populate API override fields
                 const aiderConfig = project.aiderConfig || {};
+                document.getElementById('editor-provider').value = aiderConfig.provider || '';
                 document.getElementById('editor-apiBase').value = aiderConfig.apiBase || '';
                 document.getElementById('editor-apiKey').value = aiderConfig.apiKey || '';
                 document.getElementById('editor-model').value = aiderConfig.model || '';
+
+                // Trigger provider change handler to auto-populate fields
+                if (aiderConfig.provider) {
+                    onProviderChange(aiderConfig.provider, 'editor');
+                }
 
                 // Open drawer
                 openProjectEditor();

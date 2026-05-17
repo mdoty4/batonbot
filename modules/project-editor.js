@@ -31,12 +31,14 @@
         const defaultAgent = document.getElementById('editor-project-defaultAgent').value;
 
         // API override fields — only include non-empty values
+        const provider = document.getElementById('editor-provider').value.trim();
         const apiBase = document.getElementById('editor-apiBase').value.trim();
         const apiKey = document.getElementById('editor-apiKey').value.trim();
         const model = document.getElementById('editor-model').value.trim();
 
         // Build aiderConfig — only include fields that have values
         const aiderConfig = {};
+        if (provider) aiderConfig.provider = provider;
         if (apiBase) aiderConfig.apiBase = apiBase;
         if (apiKey) aiderConfig.apiKey = apiKey;
         if (model) aiderConfig.model = model;
@@ -92,6 +94,14 @@
         const saveBtn = document.getElementById('btn-save-project-editor');
         if (saveBtn) {
             saveBtn.addEventListener('click', saveProjectEditor);
+        }
+
+        // Provider change handler — auto-populate API Base and Model
+        const providerSelect = document.getElementById('editor-provider');
+        if (providerSelect) {
+            providerSelect.addEventListener('change', function() {
+                onProviderChange(this.value, 'editor');
+            });
         }
     }
 

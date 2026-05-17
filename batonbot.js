@@ -5,6 +5,18 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const {
+  executeCodingAgent,
+  buildSpawnedTasks,
+  registerMcpTool,
+  unregisterMcpServerTools,
+  getAvailableMcpServers,
+  getMcpServer,
+  setMcpServer
+} = require('./modules/micro-agents');
+
+const batonCodeAgent = require('./modules/agents/baton-code');
+const batonCodeThinkingAgent = require('./modules/agents/baton-code-thinking');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -461,7 +473,7 @@ function getMostRecentSessionId() {
  * Example: testbench_cline_task_0_2026-04-21T16-20-44
  */
 function extractSessionKey(sessionId) {
-  const match = sessionId.match(/^(.+)_(aider|cline)_task_(\d+)_/);
+  const match = sessionId.match(/^(.+)_(aider|cline|baton-code-thinking|baton-code)_task_(\d+)_/);
   if (match) {
     return {
       projectTitle: match[1],
@@ -704,7 +716,356 @@ function buildEnv(agentName, config) {
   );
 }
 
+/**
+ * Build structured context from all previously completed tasks in the pipeline.
+ * Returns a markdown string with summaries of completed tasks, or null if none.
+ */
+function buildPreviousTasksContext(project, currentTaskIndex) {
+  if (!project || !project.tasks) return null;
+
+  const completedTasks = [];
+
+  for (let i = 0; i < currentTaskIndex; i++) {
+    const task = project.tasks[i];
+    if (task && task.state === 'done') {
+      completedTasks.push({
+        index: i,
+        prompt: task.prompt,
+        summary: task.summary || '(no summary)',
+        filesCreated: task.filesCreated || [],
+        filesModified: task.filesModified || [],
+        commandsRun: task.commandsRun || []
+      });
+    }
+  }
+
+  if (completedTasks.length === 0) return null;
+
+  const parts = ['# Completed Previous Tasks', ''];
+  for (const t of completedTasks) {
+    parts.push(`## Task ${t.index}: ${t.prompt}`);
+    parts.push('');
+    parts.push(`**Summary:** ${t.summary}`);
+    if (t.filesCreated.length > 0) {
+      parts.push(`**Files created:** ${t.filesCreated.join(', ')}`);
+    }
+    if (t.filesModified.length > 0) {
+      parts.push(`**Files modified:** ${t.filesModified.join(', ')}`);
+    }
+    if (t.commandsRun.length > 0) {
+      parts.push(`**Commands run:** ${t.commandsRun.join(', ')}`);
+    }
+    parts.push('');
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build a structured task summary from the executeCodingAgent result.
+ */
+function buildTaskSummary(result, taskIndex, projectId, filesModified) {
+  return {
+    summary: result.summary || '',
+    iterations: result.iterations || 0,
+    filesCreated: result.filesCreated || [],
+    filesModified: filesModified || [],
+    commandsRun: result.commandsRun || [],
+    success: result.success !== false,
+    error: result.error || null,
+    completedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Persist a structured task summary into the project state.
+ */
+function persistTaskSummary(projectId, taskIndex, taskSummary) {
+  const state = getState();
+  const project = state.projects.find(p => p.id === projectId);
+  if (project && project.tasks[taskIndex]) {
+    Object.assign(project.tasks[taskIndex], taskSummary);
+    saveState(state);
+    console.log(`[BATON-CODE] Persisted task summary for task ${taskIndex}: ${taskSummary.summary?.slice(0, 80) || '(empty)'}...`);
+  }
+}
+
+// Helper to build a baton-code agent registry entry from a config module
+function buildBatonCodeAgentEntry(agentConfig) {
+  return {
+    name: agentConfig.name,
+    isHttpAgent: agentConfig.isHttpAgent,
+    send_message: async (prompt, config, cwd, projectId, taskContext) => {
+      const state = getState();
+      const llmConfig = getAiderConfig(projectId);
+
+      if (!llmConfig.apiBase || !llmConfig.apiKey) {
+        throw new Error('LLM API base URL and key are required. Configure in Settings.');
+      }
+
+      // Generate session ID for persistent log files (same format as Cline/Aider)
+      const projectTitle = (state.projects.find(p => p.id === projectId)?.name || projectId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const taskIndex = (taskContext && taskContext.taskIndex !== undefined) ? taskContext.taskIndex : 0;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const sessionId = `${projectTitle}_${agentConfig.agentKey}_task_${taskIndex}_${timestamp}`;
+
+      // Track files modified via replace_in_file calls during this session
+      const filesModified = [];
+
+      // ── Inject Previous Task Context ──
+      // Build structured context from all previously completed tasks in the pipeline
+      // so the new task inherits knowledge about what was done.
+      const project = state.projects.find(p => p.id === projectId);
+      const previousContext = buildPreviousTasksContext(project, taskIndex);
+
+      let enrichedPrompt = prompt;
+      if (previousContext) {
+        enrichedPrompt = `The context below was automatically inherited from previous tasks in this pipeline. Review it during your planning phase to understand the current state of the codebase.
+
+${previousContext}
+
+---
+
+${prompt}`;
+        console.log(`[BATON-CODE] Injected previous tasks context (${previousContext.length} chars) into task ${taskIndex}`);
+      } else {
+        console.log(`[BATON-CODE] No previous task context to inject for task ${taskIndex}`);
+      }
+
+      // Write session_start event
+      appendToClineLog(sessionId, {
+        type: 'session_start',
+        timestamp: new Date().toISOString(),
+        projectId,
+        taskIndex,
+        prompt,
+        workingDirectory: cwd || process.cwd()
+      });
+
+      const result = await executeCodingAgent(
+        enrichedPrompt,
+        cwd || process.cwd(),
+        {
+          apiBase: llmConfig.apiBase,
+          apiKey: llmConfig.apiKey,
+          model: llmConfig.model,
+          projectId: projectId,
+          enableThinking: agentConfig.enableThinking,
+          onLog: (event) => {
+            // Log to console for real-time terminal output
+            console.log(`[BATON-CODE] [${event.type}] ${event.message || event.toolName || JSON.stringify(event)}`);
+
+            // Write to persistent log file (same format as Cline sessions)
+            const logEntry = {
+              type: event.type || 'stdout',
+              timestamp: event.timestamp || new Date().toISOString(),
+              iteration: event.iteration,
+            };
+
+            // Map Baton Code agent events to log-friendly formats
+            if (event.type === 'agent_start') {
+              logEntry.prompt = event.prompt;
+              logEntry.workingDir = event.workingDir;
+              logEntry.model = event.model;
+            } else if (event.type === 'llm_response') {
+              logEntry.content = event.content;
+              logEntry.toolCallCount = event.toolCallCount;
+            } else if (event.type === 'tool_call') {
+              logEntry.toolName = event.toolName;
+              logEntry.toolCallId = event.toolCallId;
+              logEntry.args = event.args;
+            } else if (event.type === 'tool_result') {
+              logEntry.toolName = event.toolName;
+              logEntry.toolCallId = event.toolCallId;
+              logEntry.success = event.success;
+              logEntry.resultPreview = event.resultPreview;
+            } else if (event.type === 'agent_end') {
+              logEntry.success = event.success;
+              logEntry.summary = event.summary;
+            } else if (event.type === 'error') {
+              logEntry.message = event.message;
+            } else if (event.type === 'file_created' || event.type === 'file_edited') {
+              logEntry.filePath = event.filePath;
+            } else if (event.type === 'plan_start') {
+              logEntry.message = event.message;
+            } else if (event.type === 'plan_summary') {
+              logEntry.message = event.message;
+              logEntry.checklist = event.checklist || null;
+              logEntry.planSummary = event.planSummary || '';
+              logEntry.keyFindings = event.keyFindings || '';
+            } else if (event.type === 'plan_end') {
+              logEntry.message = event.message;
+            } else if (event.type === 'thinking_start') {
+              logEntry.message = event.message;
+            } else if (event.type === 'thinking_chunk') {
+              logEntry.content = event.content;
+              logEntry.message = event.message;
+            } else if (event.type === 'thinking_end') {
+              logEntry.content = event.content;
+              logEntry.message = event.message;
+            }
+
+            // ── Plan phase state management ──
+            // Handle plan_start: transition task to 'planning' state
+            if (event.type === 'plan_start') {
+              const planState = getState();
+              const planProject = planState.projects.find(p => p.id === projectId);
+              if (planProject && planProject.tasks[taskIndex]) {
+                planProject.tasks[taskIndex].state = 'planning';
+                saveState(planState);
+                console.log(`[BATON-CODE] Task ${taskIndex} state -> planning`);
+              }
+              // Broadcast plan_start via SSE
+              broadcastEvent(projectId, {
+                type: 'plan_start',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                message: event.message || 'Starting planning phase...'
+              });
+            }
+
+            // Handle plan_summary: store plan data on task object and broadcast
+            if (event.type === 'plan_summary') {
+              const planState = getState();
+              const planProject = planState.projects.find(p => p.id === projectId);
+              if (planProject && planProject.tasks[taskIndex]) {
+                planProject.tasks[taskIndex].planSummary = event.planSummary || '';
+                planProject.tasks[taskIndex].keyFindings = event.keyFindings || '';
+                if (event.checklist) {
+                  planProject.tasks[taskIndex].planChecklist = event.checklist;
+                }
+                saveState(planState);
+              }
+              // Broadcast plan_summary via SSE
+              broadcastEvent(projectId, {
+                type: 'plan_summary',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                checklist: event.checklist || null,
+                planSummary: event.planSummary || '',
+                keyFindings: event.keyFindings || '',
+                message: event.message || 'Planning summary available'
+              });
+            }
+
+            // Handle plan_end: transition from 'planning' to 'in_progress'
+            if (event.type === 'plan_end') {
+              const planState = getState();
+              const planProject = planState.projects.find(p => p.id === projectId);
+              if (planProject && planProject.tasks[taskIndex]) {
+                planProject.tasks[taskIndex].state = 'in_progress';
+                saveState(planState);
+                console.log(`[BATON-CODE] Task ${taskIndex} state -> in_progress (execution phase)`);
+              }
+              // Broadcast plan_end via SSE
+              broadcastEvent(projectId, {
+                type: 'plan_end',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                message: event.message || 'Planning phase complete, starting execution'
+              });
+            }
+
+            // ── Thinking event SSE broadcasting ──
+            if (event.type === 'thinking_start') {
+              broadcastEvent(projectId, {
+                type: 'thinking_start',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                message: event.message || 'Agent is thinking...'
+              });
+            }
+
+            if (event.type === 'thinking_chunk') {
+              broadcastEvent(projectId, {
+                type: 'thinking_chunk',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                content: event.content || '',
+                message: event.message || ''
+              });
+            }
+
+            if (event.type === 'thinking_end') {
+              broadcastEvent(projectId, {
+                type: 'thinking_end',
+                taskIndex,
+                timestamp: event.timestamp || new Date().toISOString(),
+                content: event.content || '',
+                message: event.message || 'Agent finished thinking'
+              });
+            }
+
+            // Track file activity for completion detection
+            if (event.type === 'tool_result' && event.toolName === 'write_to_file') {
+              trackFileActivity(sessionId);
+            }
+
+            // Track file modifications from replace_in_file calls
+            if (event.type === 'tool_call' && event.toolName === 'replace_in_file' && event.args?.path) {
+              if (!filesModified.includes(event.args.path)) {
+                filesModified.push(event.args.path);
+              }
+            }
+
+            appendToClineLog(sessionId, logEntry);
+          }
+        }
+      );
+
+      // Write session_end event with final result
+      appendToClineLog(sessionId, {
+        type: 'session_end',
+        timestamp: new Date().toISOString(),
+        exitCode: result.success ? 0 : 1,
+        success: result.success,
+        summary: result.summary || '',
+        iterations: result.iterations,
+        filesCreated: result.filesCreated || [],
+        commandsRun: result.commandsRun || [],
+        error: result.error || null
+      });
+
+      // Build structured task summary from the agent result
+      const taskSummary = buildTaskSummary(result, taskIndex, projectId, filesModified);
+
+      // Handle context overflow: inject spawned tasks before returning
+      if (result.overflow && taskContext) {
+        const { taskIndex, agentName } = taskContext;
+        const spawned = buildSpawnedTasks(result.checklist, result.originalPrompt, agentName, taskIndex);
+
+        if (spawned.length > 0) {
+          const currentState = getState();
+          const project = currentState.projects.find(p => p.id === projectId);
+          if (project) {
+            // Persist structured summary on the original task before marking done
+            Object.assign(project.tasks[taskIndex], taskSummary);
+            project.tasks[taskIndex].state = 'done';
+            project.tasks[taskIndex].splitSummary = result.summary || 'Task split due to context limits';
+
+            // Insert spawned tasks after the current task index
+            project.tasks.splice(taskIndex + 1, 0, ...spawned);
+
+            // Reassign IDs
+            project.tasks.forEach((t, i) => { t.id = i; });
+
+            saveState(currentState);
+            console.log(`[BATON-CODE] Overflow: injected ${spawned.length} spawned task(s) at index ${taskIndex + 1} for project ${projectId}. Pipeline now has ${project.tasks.length} tasks.`);
+          }
+        }
+      } else {
+        // Normal (non-overflow) success path: persist structured summary
+        persistTaskSummary(projectId, taskIndex, taskSummary);
+      }
+
+      return { success: true, result };
+    }
+  };
+}
+
 const AGENT_REGISTRY = {
+  'baton-code': buildBatonCodeAgentEntry(batonCodeAgent),
+  'baton-code-thinking': buildBatonCodeAgentEntry(batonCodeThinkingAgent),
   aider: {
     name: 'Aider',
     getCommand: (prompt, config) => ({
@@ -823,15 +1184,23 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   console.log(`[EXECUTE] Starting ${agent.name} for project ${projectId}, task ${taskIndex}: "${task.prompt}"`);
 
-  // ── Telegram: HTTP-based agent (no child process) ──
+  // ── HTTP-based agents: no child process (Telegram, Baton Code, etc.) ──
   if (agent.isHttpAgent) {
-    const state = getState();
-    const telegramConfig = state.telegramConfig || {};
     activeSessions.set(taskIndex, { sessionId, projectId, spawnTime: Date.now(), child: null });
 
     try {
-      const result = await agent.send_message(task.prompt, telegramConfig);
-      console.log(`[EXECUTE] Telegram task ${taskIndex} sent successfully:`, result);
+      let result;
+      if (agentName === 'telegram') {
+        // Telegram: send_message(prompt, config)
+        const state = getState();
+        const telegramConfig = state.telegramConfig || {};
+        result = await agent.send_message(task.prompt, telegramConfig);
+      } else {
+        // Baton Code: send_message(prompt, config, cwd, projectId, taskContext)
+        result = await agent.send_message(task.prompt, {}, cwd, projectId, { taskIndex, agentName });
+      }
+
+      console.log(`[EXECUTE] ${agent.name} task ${taskIndex} sent successfully`);
       activeSessions.delete(taskIndex);
 
       const currentState = getState();
@@ -843,7 +1212,7 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
       }
       return Promise.resolve({ success: true });
     } catch (err) {
-      console.error(`[EXECUTE] Telegram task ${taskIndex} failed:`, err.message);
+      console.error(`[EXECUTE] ${agent.name} task ${taskIndex} failed:`, err.message);
       activeSessions.delete(taskIndex);
 
       const currentState = getState();
