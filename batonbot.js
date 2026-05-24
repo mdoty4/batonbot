@@ -3,6 +3,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const {
@@ -1103,11 +1104,99 @@ const AGENT_REGISTRY = {
   },
   cline: {
     name: 'Cline',
-    getCommand: (prompt, config, taskIndex) => ({
-      command: 'cline',
-      args: ['--json', '-y', sanitizePromptForCline(prompt)]
-    }),
-    getEnv: () => ({}),
+    getCommand: (prompt, config, taskIndex) => {
+      const args = ['--json', '-y'];
+      // Detect the provider type from BatonBot's global config and generate a matching
+      // Cline providers.json so Cline uses exactly what the user configured — no fallback chain.
+      // Detection order:
+      //   1. Anthropic (apiBase contains "anthropic.com")
+      //   2. LM Studio (apiBase is empty or contains "localhost")
+      //   3. OpenAI-compatible (Grok, OpenAI, any other external API)
+      if (config.apiBase || config.model) {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-cline-'));
+        const settingsDir = path.join(tmpDir, 'data', 'settings');
+        fs.mkdirSync(settingsDir, { recursive: true });
+
+        const apiBaseLower = (config.apiBase || '').toLowerCase();
+        let providerType = 'openai';
+        let providerSettings = {};
+
+        if (apiBaseLower.includes('anthropic.com')) {
+          // ── ANTHROPIC PROVIDER ──
+          providerType = 'anthropic';
+          providerSettings = {
+            provider: 'anthropic',
+            model: config.model || 'claude-sonnet-4-20250514',
+            apiKey: config.apiKey || ''
+          };
+        } else if (!config.apiBase || apiBaseLower.includes('localhost')) {
+          // ── LM STUDIO PROVIDER (local) ──
+          providerType = 'lmstudio';
+          providerSettings = {
+            provider: 'lmstudio',
+            model: config.model || 'qwen/qwen3.6-27b'
+          };
+        } else {
+          // ── OPENAI-COMPATIBLE PROVIDER (Grok, OpenAI, etc.) ──
+          providerType = 'openai';
+          providerSettings = {
+            provider: 'openai',
+            model: config.model || 'gpt-4o',
+            baseUrl: config.apiBase || '',
+            apiKey: config.apiKey || ''
+          };
+        }
+
+        const providersJson = {
+          version: 1,
+          lastUsedProvider: providerType,
+          providers: {
+            [providerType]: {
+              settings: providerSettings,
+              updatedAt: new Date().toISOString(),
+              tokenSource: 'batonbot'
+            }
+          }
+        };
+        fs.writeFileSync(path.join(settingsDir, 'providers.json'), JSON.stringify(providersJson, null, 2));
+
+        args.push('--data-dir', tmpDir);
+        args.push('-P', providerType);
+        console.log(`[CLINE] Using ${providerType} provider with temp data-dir: ${tmpDir}`);
+      }
+      if (config.model) {
+        args.push('-m', config.model);
+      }
+      args.push(sanitizePromptForCline(prompt));
+      return { command: 'cline', args };
+    },
+    getEnv: (config) => {
+      // Cline's SDKs require API keys as environment variables regardless of
+      // whether the key is also written to providers.json:
+      // - Anthropic SDK (@anthropic-ai/sdk) requires ANTHROPIC_API_KEY
+      // - OpenAI SDK requires OPENAI_API_KEY
+      // The providers.json provides the baseUrl/model config, but the SDKs
+      // still read the auth key from the environment.
+      if (config.apiBase || config.model) {
+        const env = {
+          MODEL: config.model || ''
+        };
+        const apiBaseLower = (config.apiBase || '').toLowerCase();
+        if (apiBaseLower.includes('anthropic.com')) {
+          env.ANTHROPIC_API_KEY = config.apiKey || '';
+        } else if (!apiBaseLower.includes('localhost')) {
+          // OpenAI-compatible providers (Grok, OpenAI, etc.) need OPENAI_API_KEY
+          env.OPENAI_API_KEY = config.apiKey || '';
+        }
+        // LM Studio (localhost) doesn't need an API key
+        return env;
+      }
+      return {
+        OPENAI_API_BASE: config.apiBase || '',
+        OPENAI_API_KEY: config.apiKey || '',
+        MODEL: config.model || ''
+      };
+    },
     handleOutput: (data, context) => {
       const text = data.toString();
       console.log(`[CLINE][task-${context.taskIndex}]: ${text.trim()}`);
@@ -1175,7 +1264,7 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
     return { success: false, error: `Unsupported agent: ${agentName}` };
   }
 
-  const config = (agentName === 'aider') ? getAiderConfig(project) : {};
+  const config = getAiderConfig(project);
   
   // Session ID for logging (primarily used by Cline)
   const projectTitle = (project.name || projectId).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1645,15 +1734,115 @@ app.post('/api/cline/headless', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  const cmdObj = { command: 'cline', args: ['--json', '-y', prompt] };
+  // Pass LLM config to headless Cline via --data-dir with lmstudio provider.
+  // Cline's built-in 'lmstudio' provider connects to localhost:1234 automatically.
+  const headlessConfig = projectId ? (() => {
+    const proj = getState().projects.find(p => p.id === projectId);
+    return proj && proj.aiderConfig && Object.keys(proj.aiderConfig).length > 0 ? proj.aiderConfig : (getState().aiderConfig || {});
+  })() : (getState().aiderConfig || {});
+
+  // Build Cline command with --data-dir pointing to temp config with the correct provider
+  // Detect provider type from BatonBot's global config (same logic as the regular Cline agent)
+  const headlessArgs = ['--json', '-y'];
+  if (headlessConfig.apiBase || headlessConfig.model) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-headless-cline-'));
+    const settingsDir = path.join(tmpDir, 'data', 'settings');
+    fs.mkdirSync(settingsDir, { recursive: true });
+
+    const apiBaseLower = (headlessConfig.apiBase || '').toLowerCase();
+    let providerType = 'openai';
+    let providerSettings = {};
+
+    if (apiBaseLower.includes('anthropic.com')) {
+      providerType = 'anthropic';
+      providerSettings = {
+        provider: 'anthropic',
+        model: headlessConfig.model || 'claude-sonnet-4-20250514',
+        apiKey: headlessConfig.apiKey || ''
+      };
+    } else if (!headlessConfig.apiBase || apiBaseLower.includes('localhost')) {
+      providerType = 'lmstudio';
+      providerSettings = {
+        provider: 'lmstudio',
+        model: headlessConfig.model || 'qwen/qwen3.6-27b'
+      };
+    } else {
+      providerType = 'openai';
+      providerSettings = {
+        provider: 'openai',
+        model: headlessConfig.model || 'gpt-4o',
+        baseUrl: headlessConfig.apiBase || '',
+        apiKey: headlessConfig.apiKey || ''
+      };
+    }
+
+    const providersJson = {
+      version: 1,
+      lastUsedProvider: providerType,
+      providers: {
+        [providerType]: {
+          settings: providerSettings,
+          updatedAt: new Date().toISOString(),
+          tokenSource: 'batonbot'
+        }
+      }
+    };
+    fs.writeFileSync(path.join(settingsDir, 'providers.json'), JSON.stringify(providersJson, null, 2));
+
+    headlessArgs.push('--data-dir', tmpDir);
+    headlessArgs.push('-P', providerType);
+    console.log(`[HEADLESS CLINE] Using ${providerType} provider with temp data-dir: ${tmpDir}`);
+  }
+  if (headlessConfig.model) {
+    headlessArgs.push('-m', headlessConfig.model);
+  }
+  headlessArgs.push(prompt);
+  const cmdObj = { command: 'cline', args: headlessArgs };
 
   console.log(`[HEADLESS CLINE] Command: ${cmdObj.command} ${cmdObj.args.join(' ')}`);
 
   // Strip BatonBot-specific env vars to prevent child apps from inheriting our configuration.
   const { PORT: _batonbotPort2, LM_STUDIO_URL: _lmStudioUrl2, ...inheritedEnvHeadless } = process.env;
+
+  // Cline's SDKs require API keys as environment variables regardless of
+  // whether the key is also written to providers.json:
+  // - Anthropic SDK (@anthropic-ai/sdk) requires ANTHROPIC_API_KEY
+  // - OpenAI SDK requires OPENAI_API_KEY + OPENAI_API_BASE for custom endpoints
+  // The providers.json provides the baseUrl/model config, but the SDKs
+  // still read the auth key from the environment.
+  const headlessEnv = { ...inheritedEnvHeadless };
+  
+  // Debug logging to verify config
+  console.log(`[HEADLESS CLINE] Config debug: apiBase=${headlessConfig.apiBase || '(none)'}, apiKey=${headlessConfig.apiKey ? '(present)' : '(MISSING)'}, model=${headlessConfig.model || '(none)'}`);
+  
+  if (headlessConfig.apiBase || headlessConfig.model) {
+    if (headlessConfig.model) {
+      headlessEnv.MODEL = headlessConfig.model;
+    }
+    const headlessApiBaseLower = (headlessConfig.apiBase || '').toLowerCase();
+    
+    if (headlessApiBaseLower.includes('anthropic.com')) {
+      // Anthropic SDK requires ANTHROPIC_API_KEY
+      headlessEnv.ANTHROPIC_API_KEY = headlessConfig.apiKey || '';
+      console.log(`[HEADLESS CLINE] Setting ANTHROPIC_API_KEY`);
+    } else if (!headlessApiBaseLower.includes('localhost')) {
+      // OpenAI-compatible providers (Grok, OpenAI, xAI, etc.) need both
+      // OPENAI_API_KEY (auth) and OPENAI_API_BASE (endpoint URL)
+      headlessEnv.OPENAI_API_KEY = headlessConfig.apiKey || '';
+      headlessEnv.OPENAI_API_BASE = headlessConfig.apiBase || '';
+      console.log(`[HEADLESS CLINE] Setting OPENAI_API_KEY + OPENAI_API_BASE=${headlessConfig.apiBase}`);
+    }
+    // LM Studio (localhost) doesn't need an API key
+  } else {
+    // No providers.json — pass env vars as fallback
+    headlessEnv.OPENAI_API_BASE = headlessConfig.apiBase || '';
+    headlessEnv.OPENAI_API_KEY = headlessConfig.apiKey || '';
+    headlessEnv.MODEL = headlessConfig.model || '';
+  }
+
   const child = spawn(cmdObj.command, cmdObj.args, {
     cwd,
-    env: inheritedEnvHeadless,
+    env: headlessEnv,
   });
 
   let stdout = '';
