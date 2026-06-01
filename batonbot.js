@@ -2436,7 +2436,7 @@ app.post('/api/project/:id/tasks/:taskIndex/send', async (req, res) => {
  * Accepts { message, projectId } and streams SSE response.
  */
 app.post('/api/chat', async (req, res) => {
-  const { message, projectId } = req.body;
+  const { message, projectId, addTelegram } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: 'message is required' });
@@ -2465,25 +2465,41 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'LLM API base URL and key are required. Configure in Settings.' });
   }
 
-  // System prompt instructs the LLM to break the project description into sequential,
-  // self-contained tasks wrapped in <<TASK_N>> tags, and critically to NOT include
-  // file-reference annotations inside code blocks.
+  // System prompts instruct the LLM to wrap existing steps (already written by the user)
+  // into <<TASK_N>> blocks, preserving original content rather than rewriting or generating new tasks.
   //
   // IMPORTANT: Each task block is self-contained with its own rules embedded inside.
   // The regex that parses the output uses a backreference:
   //   /<<TASK_(\d+)>>([\s\S]*?)<<\s*\/TASK_\1>>/g
   // This means <<TASK_1>> must close with <</TASK_1>>, <<TASK_2>> with <</TASK_2>>, etc.
   // Each block is extracted independently, so rules must be inside each block.
-  const systemPrompt = `You are an expert software architect that breaks project descriptions into sequential, self-contained implementation tasks.
+  //
+  // When addTelegram is true, the LLM inserts Telegram signal-chain tasks between
+  // each implementation step, creating a "start" message at the beginning and a
+  // "Step N of X complete" message after each step.
 
-You MUST format your response using the exact structure below. Each task is a self-contained block with its own rules. Use incrementing numbers (1, 2, 3...) for each task.
+  const systemPromptStandard = `You are a task formatter that wraps existing implementation steps into a structured format. The user will provide steps that are already written — your job is to wrap each step into a <<TASK_N>> block, NOT to rewrite, expand, or generate new steps.
 
-Example structure:
+## What to do
+1. Read the user's input and identify each distinct step (numbered lists, bullet points, headings, paragraphs, or separate code blocks).
+2. Wrap each existing step into a <<TASK_N>> block using incrementing numbers (1, 2, 3...).
+3. Preserve the original text and intent of each step exactly — do not rewrite, summarize, or invent new content.
+4. Include the "CODE BLOCK RULES FOR THIS TASK" section inside every block (required for downstream parsing).
+
+## What NOT to do
+- Do NOT generate new steps or requirements that the user did not provide.
+- Do NOT rewrite or rephrase the user's steps — preserve them verbatim.
+- Do NOT merge separate steps into one block.
+- Do NOT add extra commentary, introductions, or conclusions outside the task blocks.
+
+## Output format
+
+Your entire response must consist ONLY of <<TASK_N>> blocks, nothing else.
 
 <<TASK_1>>
-Step 1: Set up project structure
+Step 1: [Original step title from user]
 
-Objective: Initialize the project with required dependencies and folder layout.
+Objective: [Original objective or description from user]
 
 CODE BLOCK RULES FOR THIS TASK:
 - NEVER include "(see below for file content)" inside fenced code blocks
@@ -2491,13 +2507,13 @@ CODE BLOCK RULES FOR THIS TASK:
 - Mention file paths outside code fences, not inside
 - No non-code annotations or placeholders inside code fences
 
-[Full self-contained prompt with all context, code, and commands]
+[The user's original step content preserved exactly as written]
 <</TASK_1>>
 
 <<TASK_2>>
-Step 2: Implement the API layer
+Step 2: [Original step title from user]
 
-Objective: Create REST endpoints for the core resources.
+Objective: [Original objective or description from user]
 
 CODE BLOCK RULES FOR THIS TASK:
 - NEVER include "(see below for file content)" inside fenced code blocks
@@ -2505,14 +2521,71 @@ CODE BLOCK RULES FOR THIS TASK:
 - Mention file paths outside code fences, not inside
 - No non-code annotations or placeholders inside code fences
 
-[Full self-contained prompt with all context, code, and commands]
+[The user's original step content preserved exactly as written]
 <</TASK_2>>
 
-CRITICAL RULES:
-1. Each <<TASK_N>> block MUST be closed with the matching <</TASK_N>> tag (e.g., TASK_1 closes with TASK_1, TASK_2 closes with TASK_2).
+## Critical rules
+1. Each <<TASK_N>> block MUST be closed with the matching <</TASK_N>> tag (e.g., TASK_1 closes with <</TASK_1>>, TASK_2 closes with <</TASK_2>>).
 2. The "CODE BLOCK RULES FOR THIS TASK" section MUST appear inside EVERY task block.
 3. Code blocks inside tasks must contain ONLY valid code — no file-reference annotations.
-4. Each task must be fully self-contained and not depend on context from other tasks.`;
+4. Preserve the user's original content verbatim — your only job is to wrap, not to rewrite.`;
+
+  const systemPromptTelegram = `You are a task formatter that wraps existing implementation steps into a structured format AND inserts Telegram signal-chain messages between each step. The user will provide steps that are already written — your job is to wrap each step into a <<TASK_N>> block and add Telegram tasks, NOT to rewrite, expand, or generate new implementation steps.
+
+## What to do
+1. Read the user's input and identify each distinct step (numbered lists, bullet points, headings, paragraphs, or separate code blocks).
+2. Count the total number of user steps (call this N).
+3. Produce exactly (2N + 1) task blocks:
+   - TASK_1: A Telegram "Start" message announcing the pipeline has begun
+   - Then for each user step S (1 through N):
+     a. Wrap the user's original step S into a <<TASK>> block (preserve verbatim)
+     b. Insert a Telegram "Step S of N complete" block with a brief one-sentence summary of what that step accomplished
+4. Include the "CODE BLOCK RULES FOR THIS TASK" section inside every block (required for downstream parsing).
+
+## Telegram task format
+
+Each Telegram task must contain a "Telegram Message:" line with the message text. Example:
+
+<<TASK_1>>
+Telegram Message: 🚀 Starting pipeline with \${N} implementation steps.
+
+CODE BLOCK RULES FOR THIS TASK:
+- NEVER include "(see below for file content)" inside fenced code blocks
+- Code blocks must contain only valid, compilable code
+- Mention file paths outside code fences, not inside
+- No non-code annotations or placeholders inside code fences
+<</TASK_1>>
+
+<<TASK_3>>
+Telegram Message: ✅ Step 1 of \${N} complete — [brief one-sentence summary of what step 1 accomplished]
+
+CODE BLOCK RULES FOR THIS TASK:
+- NEVER include "(see below for file content)" inside fenced code blocks
+- Code blocks must contain only valid, compilable code
+- Mention file paths outside code fences, not inside
+- No non-code annotations or placeholders inside code fences
+<</TASK_3>>
+
+## What NOT to do
+- Do NOT generate new implementation steps that the user did not provide.
+- Do NOT rewrite or rephrase the user's implementation steps — preserve them verbatim.
+- Do NOT merge separate steps into one block.
+- Do NOT add extra commentary, introductions, or conclusions outside the task blocks.
+- Telegram messages should be brief (one line) with a short summary.
+
+## Output format
+
+Your entire response must consist ONLY of <<TASK_N>> blocks, nothing else.
+Total blocks = 2 × (number of user steps) + 1 (the start message).
+
+## Critical rules
+1. Each <<TASK_N>> block MUST be closed with the matching <</TASK_N>> tag (e.g., TASK_1 closes with <</TASK_1>>, TASK_2 closes with <</TASK_2>>).
+2. The "CODE BLOCK RULES FOR THIS TASK" section MUST appear inside EVERY task block.
+3. Code blocks inside tasks must contain ONLY valid code — no file-reference annotations.
+4. Preserve the user's original implementation step content verbatim — only the Telegram messages are new content.
+5. Every Telegram task must include a "Telegram Message:" line.`;
+
+  const systemPrompt = addTelegram ? systemPromptTelegram : systemPromptStandard;
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');

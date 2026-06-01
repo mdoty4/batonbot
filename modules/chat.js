@@ -323,7 +323,8 @@ async function streamLLMResponse(userMessage) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message: userMessage,
-                projectId: selectedProjectId
+                projectId: selectedProjectId,
+                addTelegram: document.getElementById('add-telegram-toggle')?.checked || false
             })
         });
 
@@ -488,9 +489,12 @@ function extractTaskMetadata(rawText, taskNumber) {
     metadata.files = Array.from(fileSet);
 
     // Auto-assign agent based on complexity heuristics:
+    // - Telegram message tasks -> telegram agent
     // - Tasks with many file paths or CLI commands -> cline (more capable)
     // - Simple single-file tasks -> aider (faster)
-    if (metadata.files.length <= 1 && metadata.cliCommands.length === 0 && rawText.length < 500) {
+    if (rawText.match(/^Telegram Message:/im)) {
+        metadata.agent = 'telegram';
+    } else if (metadata.files.length <= 1 && metadata.cliCommands.length === 0 && rawText.length < 500) {
         metadata.agent = 'aider';
     } else {
         metadata.agent = 'cline';

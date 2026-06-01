@@ -124,14 +124,23 @@
                     <input id="new-chat-project-name" placeholder="Project name..." style="display:none;">
                 </div>
 
-                <div class="chat-layout">
-                    <div class="chat-panel">
-                        <div id="chat-messages" class="chat-messages"></div>
-                        <div class="chat-input-area">
-                            <textarea id="chat-input" placeholder="Describe your project..."></textarea>
-                            <button id="btn-send-chat">Send</button>
+                    <div class="chat-layout">
+                        <div class="chat-panel">
+                            <div id="chat-messages" class="chat-messages"></div>
+                            <div class="chat-input-area">
+                                <div class="chat-options-row">
+                                    <label class="telegram-toggle-label">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="add-telegram-toggle">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                        <span class="toggle-text">📨 Add Telegram</span>
+                                    </label>
+                                </div>
+                                <textarea id="chat-input" placeholder="Describe your project..."></textarea>
+                                <button id="btn-send-chat">Send</button>
+                            </div>
                         </div>
-                    </div>
                     <div class="requirements-sidebar">
                         <h3>Extracted Requirements</h3>
                         <div id="requirements-list"></div>
