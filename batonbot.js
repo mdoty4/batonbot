@@ -398,6 +398,20 @@ function checkClineCompletionAndTriggerNext(sessionId, entry) {
     if (entry.data.tool_name === 'attempt_completion' || entry.data.tool?.name === 'attempt_completion') {
       isCompletionSignal = true;
     }
+    // Newer Cline builds emit success via submit_and_exit tool call or a
+    // run_result/done event with reason "completed".
+    const ev = entry.data.event;
+    if (ev) {
+      if (ev.type === 'content_start' && ev.contentType === 'tool' && ev.toolName === 'submit_and_exit') {
+        isCompletionSignal = true;
+      }
+      if (ev.type === 'done' && ev.reason === 'completed') {
+        isCompletionSignal = true;
+      }
+    }
+    if (entry.data.type === 'run_result' && entry.data.finishReason === 'completed') {
+      isCompletionSignal = true;
+    }
   } else if (entry.type === 'say' && entry.say === 'completion_result') {
     isCompletionSignal = true;
   } else if (entry.tool_name === 'attempt_completion' || entry.tool?.name === 'attempt_completion') {
@@ -430,7 +444,8 @@ function checkClineCompletionAndTriggerNext(sessionId, entry) {
     // Clean up tracking state for this session
     alreadyTriggeredSessions.add(sessionId);
 
-    const exitCode = entry.exitCode || -1;
+    // Use ?? so a clean exit (code 0) isn't misread as -1 (|| treats 0 as falsy).
+    const exitCode = entry.exitCode ?? -1;
     const lastFileActivity = fileActivityTimestamps.get(sessionId) || 0;
 
     if (exitCode === 0 && nextTaskIndex < activeProject.tasks.length) {
@@ -1474,8 +1489,20 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
     const text = data.toString();
     stdout += text;
 
-    // Check for completion_result events to track session lifecycle
-    if (text.includes('completion_result') || text.includes('completion_tag')) {
+    // Track whether Cline emitted any of its success signals. Different Cline
+    // releases use different markers — accept any of them:
+    //   - "completion_result" / "completion_tag" (older builds)
+    //   - "attempt_completion" tool call (mid builds)
+    //   - "submit_and_exit" tool call (current builds)
+    //   - run_result/done with "completed" finishReason/reason (current builds)
+    if (
+      text.includes('completion_result') ||
+      text.includes('completion_tag') ||
+      text.includes('attempt_completion') ||
+      text.includes('submit_and_exit') ||
+      text.includes('"finishReason":"completed"') ||
+      text.includes('"reason":"completed"')
+    ) {
       hasCompletionResult = true;
     }
 
