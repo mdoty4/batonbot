@@ -1232,82 +1232,48 @@ const AGENT_REGISTRY = {
   cline: {
     name: 'Cline',
     getCommand: (prompt, config, taskIndex) => {
-      const args = ['--json', '-y'];
-
-      // Default behavior: inject a per-spawn providers.json built from the
-      // UI's Global Config (Provider / API Base URL / API Key / Model) so the
-      // user's selection in Settings is the source of truth for which LLM
-      // Cline calls. We write the file to a fresh temp data-dir and pass it
-      // via `--data-dir` so we never mutate the user's persisted Cline auth
-      // at ~/.cline.
+      // ── v3.0.2 strategy: env-vars + flags, no providers.json injection ──
       //
-      // Escape hatch: users who prefer to manage Cline auth themselves via
-      // `cline auth --provider … --apikey … --modelid …` can opt out with:
-      //   BATONBOT_NO_AUTO_AUTH=1 npm start
-      // In that case BatonBot stays out of the auth path and Cline uses its
-      // own persisted providers.json.
+      // Earlier versions (v3.0.1 and before) wrote a per-spawn providers.json
+      // into a temp --data-dir and passed it to Cline. Testing on Windows
+      // showed Cline's Bun-bundled CLI ignores providers.json from a custom
+      // --data-dir and *only* reads auth from:
+      //   1) Environment variables (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENAI_API_BASE)
+      //   2) The user's persisted ~/.cline auth (set via `cline auth …`)
+      // So the providers.json injection was dead code that just added
+      // surface area for Windows-specific spawn issues.
+      //
+      // New strategy: tell Cline which provider via `-P <provider>`, which
+      // model via `-m <model>`, and pass the API key through the spawn env
+      // (handled in getEnv below). For LM Studio we don't pass `-P` so Cline
+      // uses its default provider lookup.
+      //
+      // Escape hatch (`BATONBOT_NO_AUTO_AUTH=1`) still skips both `-P` and
+      // any env-var injection so power-users with custom `cline auth` setups
+      // can opt out of BatonBot's involvement entirely.
+      const args = ['--json', '-y'];
       const SKIP_INJECTION = process.env.BATONBOT_NO_AUTO_AUTH === '1';
 
       if (!SKIP_INJECTION && (config.apiBase || config.model)) {
-
-        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-cline-'));
-        const settingsDir = path.join(tmpDir, 'data', 'settings');
-        fs.mkdirSync(settingsDir, { recursive: true });
+        if (!config.model) {
+          throw new Error('Cline model is not configured. Set it in Settings → LLM Configuration (e.g. "claude-sonnet-4-6").');
+        }
 
         const apiBaseLower = (config.apiBase || '').toLowerCase();
         let providerType = 'openai';
-        let providerSettings = {};
-
-        // Model must come from the global/project config — no silent fallback.
-        // If it's missing we throw a clear error so the task is marked failed
-        // and the user knows to set the model in Settings.
-        if (!config.model) {
-          throw new Error('Cline model is not configured. Set it in Settings → LLM Configuration (e.g. "claude-opus-4-7").');
-        }
-
         if (apiBaseLower.includes('anthropic.com')) {
-          // ── ANTHROPIC PROVIDER ──
           providerType = 'anthropic';
-          providerSettings = {
-            provider: 'anthropic',
-            model: config.model,
-            apiKey: config.apiKey || ''
-          };
         } else if (!config.apiBase || apiBaseLower.includes('localhost') || apiBaseLower.includes('127.0.0.1')) {
-          // ── LM STUDIO PROVIDER (local) ──
           providerType = 'lmstudio';
-          providerSettings = {
-            provider: 'lmstudio',
-            model: config.model
-          };
         } else {
-          // ── OPENAI-COMPATIBLE PROVIDER (Grok, OpenAI, etc.) ──
           providerType = 'openai';
-          providerSettings = {
-            provider: 'openai',
-            model: config.model,
-            baseUrl: config.apiBase || '',
-            apiKey: config.apiKey || ''
-          };
         }
 
-        const providersJson = {
-          version: 1,
-          lastUsedProvider: providerType,
-          providers: {
-            [providerType]: {
-              settings: providerSettings,
-              updatedAt: new Date().toISOString(),
-              tokenSource: 'batonbot'
-            }
-          }
-        };
-        fs.writeFileSync(path.join(settingsDir, 'providers.json'), JSON.stringify(providersJson, null, 2));
-
-        args.push('--data-dir', tmpDir);
+        // Tell Cline which provider to use. Auth keys travel via env (see getEnv).
         args.push('-P', providerType);
-        console.log(`[CLINE] Using ${providerType} provider with temp data-dir: ${tmpDir}`);
+        console.log(`[CLINE] Using ${providerType} provider (auth via env vars; no providers.json injection)`);
       }
+
       if (config.model) {
         args.push('-m', config.model);
       }
@@ -1480,6 +1446,22 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
     });
   }
 
+  // ── Parallels shared-folder advisory (Windows) ──
+  // Working directories under C:\Mac\ are typically Parallels Mac shared
+  // folders. Cline's filesystem operations can hang or be very slow on
+  // those mounts. Warn loudly so the user can correlate symptoms; we don't
+  // block since some setups work fine.
+  if (IS_WINDOWS && /^[A-Z]:\\Mac\\/i.test(cwd)) {
+    const warnMsg = `Working directory '${cwd}' looks like a Parallels Mac shared folder. Cline may hang or be slow against this mount. If the task stalls, copy the project to a native Windows path (e.g. C:\\Users\\<you>\\Desktop\\<project>) and try again.`;
+    console.warn(`[WARN] ${warnMsg}`);
+    broadcastEvent(projectId, {
+      type: 'warning',
+      taskIndex,
+      message: warnMsg,
+      timestamp: new Date().toISOString()
+    });
+  }
+
   // Use spawnCompat so .cmd/.bat shims (cline, aider, git) work on Windows.
   // On macOS/Linux this behaves identically to plain spawn (no shell).
   const child = spawnCompat(cmdObj.command, cmdObj.args, { cwd, env });
@@ -1495,11 +1477,31 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   let stdout = '';
   let stderr = '';
-  
+  let receivedAnyOutput = false;
+
+  // ── Stall watchdog ──
+  // If the child emits zero stdout AND zero stderr within STALL_TIMEOUT_MS,
+  // surface a clear advisory. Common causes: hung initialization, slow
+  // shared-folder cwd, or interactive prompt we can't see. Without this,
+  // BatonBot would sit silent and the user has no idea what went wrong.
+  const STALL_TIMEOUT_MS = 60_000;
+  const stallTimer = setTimeout(() => {
+    if (receivedAnyOutput) return;
+    const stallMsg = `${agent.name} task ${taskIndex}: no output for ${Math.round(STALL_TIMEOUT_MS / 1000)}s after spawn. The agent may be hung. Common causes:\n  • Interactive prompt — run \`cline auth …\` once and start BatonBot with BATONBOT_NO_AUTO_AUTH=1\n  • Slow/networked filesystem (Parallels share / WSL mount) — use a native path\n  • Cline build mismatch — verify with \`cline --version\` in cmd.exe`;
+    console.warn(`[STALL] ${stallMsg}`);
+    broadcastEvent(projectId, {
+      type: 'stall',
+      taskIndex,
+      message: stallMsg,
+      timestamp: new Date().toISOString()
+    });
+  }, STALL_TIMEOUT_MS);
+
   // Session Lifecycle Validation: Track whether a completion_result event was received
   let hasCompletionResult = false;
 
   child.stdout.on('data', (data) => {
+    receivedAnyOutput = true;
     const text = data.toString();
     stdout += text;
 
@@ -1535,6 +1537,7 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
   });
 
   child.stderr.on('data', (data) => {
+    receivedAnyOutput = true;
     const text = data.toString();
     stderr += text;
     console.error(`[${agent.name.toUpperCase()}][task-${taskIndex}][stderr]: ${text.trim()}`);
@@ -1557,8 +1560,9 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   return new Promise((resolve) => {
     child.on('close', (code) => {
+      clearTimeout(stallTimer);
       unregisterChildProcess(projectId, taskIndex);
-      
+
       // Clean up active session tracking for this taskIndex
       activeSessions.delete(taskIndex);
 
@@ -1634,6 +1638,7 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
     });
 
     child.on('error', (err) => {
+      clearTimeout(stallTimer);
       unregisterChildProcess(projectId, taskIndex);
       activeSessions.delete(taskIndex);
       console.error(`[EXECUTE] ${agent.name} error:`, err.message);
