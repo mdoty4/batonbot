@@ -23,6 +23,41 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot m
 
 
 
+## 🧭 Platform Support Matrix (v3.1.0)
+
+BatonBot runs on macOS, Linux, and Windows from a single codebase. The bundled
+agents have different platform reliability today:
+
+| Agent                  | macOS  | Windows                                     | Linux*  |
+|------------------------|--------|---------------------------------------------|---------|
+| Baton Code             | ✅      | ✅                                           | ✅       |
+| Baton Code (Thinking)  | ✅      | ✅                                           | ✅       |
+| Cline                  | ✅      | ⚠️ Known issue — see note below              | ✅       |
+| Aider                  | ✅      | ⚠️ Untested on Windows                       | ✅       |
+| Telegram               | ✅      | ✅                                           | ✅       |
+
+*Linux is expected to work but is less actively tested than macOS.
+
+**Windows note for Cline:** as of v3.1.0, BatonBot spawns `cline.cmd` cleanly
+on Windows (git resolution, auth path, providers.json injection, and the
+spawn pipe are all verified working), but Cline itself produces no
+stdout/stderr inside the BatonBot child process even though identical
+invocations succeed in a standalone `cmd.exe`. Investigation is ongoing.
+**Recommended on Windows: use the Baton Code / Baton Code (Thinking) agents.**
+They are HTTP-based, don't go through Cline at all, and run great there.
+macOS users — all agents work as expected.
+
+If you must run Cline on Windows, try:
+
+```cmd
+set BATONBOT_NO_AUTO_AUTH=1
+npm.cmd start
+```
+
+…after running `cline auth --provider anthropic --apikey <KEY> --modelid <MODEL>`
+once in cmd.exe. This hands Cline auth ownership entirely to your persisted
+`cline auth` config and may sidestep the silent-output issue.
+
 ## Why I Built This
 
 I found myself manually coordinating workflows between LM Studio, coding agents, local models, and scripts. Repeating the same multi-step AI tasks became tedious.
