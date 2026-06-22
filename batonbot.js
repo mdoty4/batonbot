@@ -1205,13 +1205,22 @@ const AGENT_REGISTRY = {
     name: 'Cline',
     getCommand: (prompt, config, taskIndex) => {
       const args = ['--json', '-y'];
-      // Detect the provider type from BatonBot's global config and generate a matching
-      // Cline providers.json so Cline uses exactly what the user configured — no fallback chain.
-      // Detection order:
-      //   1. Anthropic (apiBase contains "anthropic.com")
-      //   2. LM Studio (apiBase is empty or contains "localhost")
-      //   3. OpenAI-compatible (Grok, OpenAI, any other external API)
-      if (config.apiBase || config.model) {
+
+      // Default behavior: defer to the user's persisted Cline credentials
+      // (set via a one-time `cline auth --provider … --apikey … --modelid …`).
+      // This is what the Cline CLI is designed for and mirrors a successful
+      // manual invocation. Auto-writing a temp providers.json can desync from
+      // Cline's evolving schema and cause Cline to fall into an interactive
+      // auth prompt that hangs the headless run.
+      //
+      // Legacy behavior (auto-generating a temp data-dir + providers.json)
+      // is preserved behind an opt-in env var for users who want BatonBot to
+      // pass credentials through. To re-enable, run BatonBot with:
+      //   BATONBOT_AUTO_AUTH=1 npm start
+      const AUTO_AUTH = process.env.BATONBOT_AUTO_AUTH === '1';
+
+      if (AUTO_AUTH && (config.apiBase || config.model)) {
+
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-cline-'));
         const settingsDir = path.join(tmpDir, 'data', 'settings');
         fs.mkdirSync(settingsDir, { recursive: true });
@@ -1913,10 +1922,14 @@ app.post('/api/cline/headless', async (req, res) => {
     return proj && proj.aiderConfig && Object.keys(proj.aiderConfig).length > 0 ? proj.aiderConfig : (getState().aiderConfig || {});
   })() : (getState().aiderConfig || {});
 
-  // Build Cline command with --data-dir pointing to temp config with the correct provider
-  // Detect provider type from BatonBot's global config (same logic as the regular Cline agent)
+  // Build Cline command. By default we defer to the user's persisted Cline
+  // credentials (from a one-time `cline auth …` invocation). The legacy
+  // temp-data-dir + providers.json injection is preserved behind the
+  // BATONBOT_AUTO_AUTH=1 opt-in env var. See the regular Cline agent above.
   const headlessArgs = ['--json', '-y'];
-  if (headlessConfig.apiBase || headlessConfig.model) {
+  const AUTO_AUTH_HEADLESS = process.env.BATONBOT_AUTO_AUTH === '1';
+  if (AUTO_AUTH_HEADLESS && (headlessConfig.apiBase || headlessConfig.model)) {
+
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-headless-cline-'));
     const settingsDir = path.join(tmpDir, 'data', 'settings');
     fs.mkdirSync(settingsDir, { recursive: true });
