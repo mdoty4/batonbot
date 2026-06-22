@@ -54,12 +54,20 @@ function quoteArgForWindowsCmd(arg) {
 
 function spawnCompat(command, args, opts = {}) {
   if (IS_WINDOWS) {
-    const isPath = command.includes('/') || command.includes('\\');
-    const shimName = path.extname(command) || isPath ? command : `${command}.cmd`;
+    // We deliberately do NOT append `.cmd` here. cmd.exe's command resolver
+    // honors the PATHEXT environment variable (typically
+    // `.COM;.EXE;.BAT;.CMD;.VBS;.JS;.WS;…`) and probes each extension in
+    // order until it finds a match. So:
+    //   - `git`  → resolved to git.exe   (Git for Windows installs only .exe)
+    //   - `cline` → resolved to cline.cmd (npm shim)
+    //   - `aider` → resolved to aider.exe / aider.cmd depending on installer
+    // Earlier versions forced `<command>.cmd`, which broke git.exe lookups
+    // and produced "'git.cmd' is not recognized" errors. Letting cmd.exe do
+    // the resolution itself is the correct, universal behavior.
     const quotedArgs = args.map(quoteArgForWindowsCmd);
     return spawn(
       'cmd.exe',
-      ['/d', '/s', '/c', shimName, ...quotedArgs],
+      ['/d', '/s', '/c', command, ...quotedArgs],
       {
         ...opts,
         shell: false,
