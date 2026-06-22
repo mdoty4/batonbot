@@ -19,7 +19,8 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot m
 - **Built-in Chat**: A chat panel for ad-hoc interaction with the configured LLM, independent of the pipeline.
 - **Transparent Logging**: Every exchange is captured in JSON format for audit and optimization.
 
-<img width="1916" height="1762" alt="Screenshot 2026-05-16 at 11 09 27 AM" src="https://github.com/user-attachments/assets/fc53eff9-8148-4722-ad3b-8f03dce24ace" />
+<img width="1458" height="879" alt="Screenshot 2026-06-21 at 3 43 36 PM" src="https://github.com/user-attachments/assets/51459b66-8be3-4406-affa-caa34d85ce2f" />
+
 
 
 ## Why I Built This
