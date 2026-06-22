@@ -336,6 +336,19 @@ function trackFileActivity(sessionId) {
  * continues editing files (e.g., creating a JS file, then going back to edit HTML).
  */
 function checkClineCompletionAndTriggerNext(sessionId, entry) {
+  // ── GUARD: Defer to the Kanban Play-queue orchestrator while a run is active ──
+  // The /api/project/:id/tasks/orchestrate endpoint owns task sequencing via
+  // runNextTask() — it waits for each child process to exit, then schedules the
+  // next task itself. If we ALSO chain from the log watcher here, both schedulers
+  // race to launch the next task. The dedup guards (pendingTriggerSet,
+  // activeSessions) absorb the duplicate, but the loser is returned as
+  // { success:false, error:'Session already active' }, which the orchestrator
+  // then counts as a failed task. So while orchestration is running, this
+  // legacy log-driven chainer must stay out of the way.
+  if (executionState.running) {
+    return;
+  }
+
   // Extract taskIndex from session ID to ensure affine mapping
   const sessionKey = extractSessionKey(sessionId);
 
@@ -1221,20 +1234,21 @@ const AGENT_REGISTRY = {
     getCommand: (prompt, config, taskIndex) => {
       const args = ['--json', '-y'];
 
-      // Default behavior: defer to the user's persisted Cline credentials
-      // (set via a one-time `cline auth --provider … --apikey … --modelid …`).
-      // This is what the Cline CLI is designed for and mirrors a successful
-      // manual invocation. Auto-writing a temp providers.json can desync from
-      // Cline's evolving schema and cause Cline to fall into an interactive
-      // auth prompt that hangs the headless run.
+      // Default behavior: inject a per-spawn providers.json built from the
+      // UI's Global Config (Provider / API Base URL / API Key / Model) so the
+      // user's selection in Settings is the source of truth for which LLM
+      // Cline calls. We write the file to a fresh temp data-dir and pass it
+      // via `--data-dir` so we never mutate the user's persisted Cline auth
+      // at ~/.cline.
       //
-      // Legacy behavior (auto-generating a temp data-dir + providers.json)
-      // is preserved behind an opt-in env var for users who want BatonBot to
-      // pass credentials through. To re-enable, run BatonBot with:
-      //   BATONBOT_AUTO_AUTH=1 npm start
-      const AUTO_AUTH = process.env.BATONBOT_AUTO_AUTH === '1';
+      // Escape hatch: users who prefer to manage Cline auth themselves via
+      // `cline auth --provider … --apikey … --modelid …` can opt out with:
+      //   BATONBOT_NO_AUTO_AUTH=1 npm start
+      // In that case BatonBot stays out of the auth path and Cline uses its
+      // own persisted providers.json.
+      const SKIP_INJECTION = process.env.BATONBOT_NO_AUTO_AUTH === '1';
 
-      if (AUTO_AUTH && (config.apiBase || config.model)) {
+      if (!SKIP_INJECTION && (config.apiBase || config.model)) {
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-cline-'));
         const settingsDir = path.join(tmpDir, 'data', 'settings');
@@ -1949,13 +1963,15 @@ app.post('/api/cline/headless', async (req, res) => {
     return proj && proj.aiderConfig && Object.keys(proj.aiderConfig).length > 0 ? proj.aiderConfig : (getState().aiderConfig || {});
   })() : (getState().aiderConfig || {});
 
-  // Build Cline command. By default we defer to the user's persisted Cline
-  // credentials (from a one-time `cline auth …` invocation). The legacy
-  // temp-data-dir + providers.json injection is preserved behind the
-  // BATONBOT_AUTO_AUTH=1 opt-in env var. See the regular Cline agent above.
+  // Build Cline command. By default we inject a per-spawn providers.json
+  // built from the UI's Global Config so the user's Settings selection
+  // (Anthropic / OpenAI / LM Studio) is the source of truth. Users who
+  // prefer to manage Cline auth themselves via `cline auth …` can opt out
+  // with BATONBOT_NO_AUTO_AUTH=1. See the regular Cline agent above.
   const headlessArgs = ['--json', '-y'];
-  const AUTO_AUTH_HEADLESS = process.env.BATONBOT_AUTO_AUTH === '1';
-  if (AUTO_AUTH_HEADLESS && (headlessConfig.apiBase || headlessConfig.model)) {
+  const SKIP_INJECTION_HEADLESS = process.env.BATONBOT_NO_AUTO_AUTH === '1';
+  if (!SKIP_INJECTION_HEADLESS && (headlessConfig.apiBase || headlessConfig.model)) {
+
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-headless-cline-'));
     const settingsDir = path.join(tmpDir, 'data', 'settings');

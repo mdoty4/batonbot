@@ -25,10 +25,11 @@
   --bb-text-dim:     #565d6b;
 
   /* ── Brand accent (the baton) ── */
-  --bb-amber:        #f4a429;
-  --bb-amber-hi:     #ffb84d;
-  --bb-amber-soft:   rgba(244, 164, 41, 0.14);
-  --bb-amber-glow:   rgba(244, 164, 41, 0.35);
+  /* Brand accent — electric blue (was amber, kept var names for stability) */
+  --bb-amber:        #3b82f6;
+  --bb-amber-hi:     #60a5fa;
+  --bb-amber-soft:   rgba(59, 130, 246, 0.14);
+  --bb-amber-glow:   rgba(59, 130, 246, 0.35);
 
   /* ── Secondary accent hues (agent chips, state pills) ── */
   --bb-accent-mint:        #34d399;
@@ -41,8 +42,9 @@
   --bb-accent-purple-soft: rgba(167, 139, 250, 0.16);
   --bb-accent-purple-glow: rgba(167, 139, 250, 0.35);
 
-  --bb-accent-orange:      #f59e0b;
-  --bb-accent-orange-soft: rgba(245, 158, 11, 0.14);
+  /* Secondary accent — sky-cyan (was orange, kept var names for stability) */
+  --bb-accent-orange:      #38bdf8;
+  --bb-accent-orange-soft: rgba(56, 189, 248, 0.14);
 
   --bb-accent-coral:       #f87171;
   --bb-accent-coral-soft:  rgba(248, 113, 113, 0.14);
@@ -81,11 +83,11 @@
   --bb-text-muted:   #4a5260;
   --bb-text-dim:     #7a818f;
 
-  /* ── Brand accent (slightly darker amber for contrast on white) ── */
-  --bb-amber:        #c47312;
-  --bb-amber-hi:     #d8881a;
-  --bb-amber-soft:   rgba(196, 115, 18, 0.12);
-  --bb-amber-glow:   rgba(196, 115, 18, 0.32);
+  /* ── Brand accent — deeper electric blue for contrast on white ── */
+  --bb-amber:        #1d4ed8;
+  --bb-amber-hi:     #2563eb;
+  --bb-amber-soft:   rgba(29, 78, 216, 0.12);
+  --bb-amber-glow:   rgba(29, 78, 216, 0.32);
 
   /* ── Secondary accent hues (darker / more saturated for light bg) ── */
   --bb-accent-mint:        #10a86a;
@@ -98,8 +100,9 @@
   --bb-accent-purple-soft: rgba(109, 73, 224, 0.12);
   --bb-accent-purple-glow: rgba(109, 73, 224, 0.30);
 
-  --bb-accent-orange:      #d97706;
-  --bb-accent-orange-soft: rgba(217, 119, 6, 0.12);
+  /* Secondary accent — deeper sky/cyan for contrast on white */
+  --bb-accent-orange:      #0891b2;
+  --bb-accent-orange-soft: rgba(8, 145, 178, 0.12);
 
   --bb-accent-coral:       #dc2626;
   --bb-accent-coral-soft:  rgba(220, 38, 38, 0.10);
@@ -496,7 +499,7 @@ body.tab-requirements .context-bar { display: none !important; }
 }
 @keyframes pulse-amber {
   0%, 100% { box-shadow: 0 0 0 0 var(--bb-amber-glow); }
-  50%      { box-shadow: 0 0 0 8px rgba(244, 164, 41, 0); }
+  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
 }
 
 .column-body {
@@ -1009,7 +1012,7 @@ small { color: var(--bb-text-dim) !important; }
   background: var(--bb-bg-elev-1);
   border: 1px solid var(--bb-border);
   border-radius: 12px;
-  box-shadow: 0 0 0 1px var(--bb-amber-glow), 0 0 40px rgba(244, 164, 41, 0.08);
+  box-shadow: 0 0 0 1px var(--bb-amber-glow), 0 0 40px rgba(59, 130, 246, 0.08);
 }
 .empty-state-inner h2 {
   color: var(--bb-text);

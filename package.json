@@ -1,6 +1,6 @@
 {
   "name": "batonbot",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Visual AI Agent Workflow Orchestrator - Design, visualize, and execute complex AI pipelines by chaining multiple prompts and agents into repeatable workflows.",
   "main": "batonbot.js",
   "scripts": {
