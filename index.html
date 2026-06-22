@@ -1,117 +1,182 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BatonBot: Task Orchestrator</title>
+    <meta charset="utf-8">
+    <title>BatonBot: Visual AI Agent Orchestrator</title>
+
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="board.css?v=6">
+    <script>
+        // Apply saved theme before paint to avoid a flash of the wrong theme.
+        (function () {
+            try {
+                var t = localStorage.getItem('bb-theme') || 'dark';
+                if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
 </head>
     <body>
+
         <!-- ── App Header ── -->
         <header class="app-header">
-            <h1>BatonBot: <span id="sequence-status-text">Task Orchestrator</span></h1>
+            <h1>BatonBot <span class="header-subtitle" id="sequence-status-text">Visual AI Agent Orchestrator</span></h1>
+            <nav class="primary-nav">
+                <button class="nav-btn active" data-tab="board">
+                    <span class="nav-icon">📋</span>Board
+                </button>
+                <button class="nav-btn" data-tab="requirements">
+                    <span class="nav-icon">💬</span>Requirements
+                </button>
+                <button class="nav-btn" data-tab="log-viewer">
+                    <span class="nav-icon">📁</span>Logs
+                </button>
+                <button class="nav-btn nav-btn-icon" id="btn-theme-toggle" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">🌙</button>
+                <button class="nav-btn nav-btn-icon" id="btn-open-settings-header" title="Settings">⚙️</button>
+
+            </nav>
         </header>
 
-        <!-- ── Tab Navigation ── -->
-        <div class="tabs-wrapper">
-            <div class="tabs">
-                <button class="tab-btn active" data-tab="projects">
-                    <span class="tab-icon">📁</span>Projects
-                </button>
-                <button class="tab-btn" data-tab="pipeline">
-                    <span class="tab-icon">⚡</span>Pipeline
-                </button>
-                <button class="tab-btn" data-tab="requirements">
-                    <span class="tab-icon">💬</span>Requirements
-                </button>
-                <button class="tab-btn" data-tab="log-viewer">
-                    <span class="tab-icon">📋</span>Logs & Settings
-                </button>
-            </div>
-        </div>
-
-        <!-- ── Projects Tab (was combined with Pipeline) ── -->
-        <div id="projects" class="tab-content active">
-            <div class="container">
-                <h2>Projects</h2>
-                <div class="active-project-banner" id="active-project-display">Active Project: None</div>
-                
-                <div class="project-controls">
-                    <input type="text" id="new-project-name" placeholder="Project Name...">
-                    <input type="text" id="new-project-workingDir" placeholder="Working Directory (e.g., ./my-app, leave empty for current)">
-                    <button class="btn btn-success" id="btn-create-project">Create Project</button>
+        <!-- ── Context Bar (project / workdir / model) ── -->
+        <div class="context-bar" id="context-bar">
+            <div class="context-slot context-slot-project">
+                <label class="context-label">Project</label>
+                <div class="context-control">
+                    <select id="context-project-select" class="context-select">
+                        <option value="">— No project active —</option>
+                    </select>
+                    <button class="context-icon-btn" id="btn-new-project-context" title="Create new project">＋</button>
+                    <button class="context-icon-btn" id="btn-edit-project-context" title="Edit active project" disabled>✎</button>
                 </div>
+            </div>
+            <div class="context-slot context-slot-dir">
+                <label class="context-label">Working Directory</label>
+                <div class="context-value" id="context-workdir" title="">—</div>
+            </div>
+            <div class="context-slot context-slot-model">
+                <label class="context-label">Model</label>
+                <button class="context-chip" id="context-model-chip" title="Click to edit model settings">
+                    <span id="context-model-text">— not configured —</span>
+                    <span class="chip-edit">✎</span>
+                </button>
+            </div>
+        </div>
 
-                <div class="session-list">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Project Name</th>
-                                        <th>Working Dir</th>
-                        <th>ID</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="projects-body">
-                            <tr><td colspan="4" style="text-align:center">Loading projects...</td></tr>
-                        </tbody>
-                    </table>
+        <!-- ── Board Tab (primary view) ── -->
+        <div id="board" class="tab-content active">
+            <div class="board-layout">
+                <!-- Left: Agent Palette -->
+                <aside class="agent-palette" id="agent-palette">
+                    <div class="palette-section open" data-section="coding">
+                        <div class="palette-section-header">
+                            <span class="palette-section-title">Coding Agents</span>
+                            <span class="palette-section-chevron">▾</span>
+                        </div>
+                        <div class="palette-section-body">
+                            <div class="palette-agent" draggable="true" data-agent="baton-code">
+                                <span class="palette-agent-name">Baton Code</span>
+                                <button class="palette-add-btn" title="Add task with Baton Code">＋</button>
+                            </div>
+                            <div class="palette-agent" draggable="true" data-agent="baton-code-thinking">
+                                <span class="palette-agent-name">Baton Code · Thinking</span>
+                                <button class="palette-add-btn" title="Add task with Baton Code Thinking">＋</button>
+                            </div>
+                            <div class="palette-agent" draggable="true" data-agent="cline">
+                                <span class="palette-agent-name">Cline</span>
+                                <button class="palette-add-btn" title="Add task with Cline">＋</button>
+                            </div>
+                            <div class="palette-agent" draggable="true" data-agent="aider">
+                                <span class="palette-agent-name">Aider</span>
+                                <button class="palette-add-btn" title="Add task with Aider">＋</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="palette-section" data-section="productivity">
+                        <div class="palette-section-header">
+                            <span class="palette-section-title">Productivity Agents</span>
+                            <span class="palette-section-chevron">▸</span>
+                        </div>
+                        <div class="palette-section-body">
+                            <div class="palette-empty">Coming soon</div>
+                        </div>
+                    </div>
+                    <div class="palette-section" data-section="comms">
+                        <div class="palette-section-header">
+                            <span class="palette-section-title">Communications</span>
+                            <span class="palette-section-chevron">▸</span>
+                        </div>
+                        <div class="palette-section-body">
+                            <div class="palette-agent" draggable="true" data-agent="telegram">
+                                <span class="palette-agent-name">Telegram</span>
+                                <button class="palette-add-btn" title="Add Telegram message task">＋</button>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Right: 3-column Board -->
+                <section class="board-columns" id="board-columns">
+                    <div class="board-column" data-column="pending">
+                        <header class="column-header column-header-pending">
+                            <span class="column-title">Pending</span>
+                            <span class="column-count" data-count="pending">0</span>
+                        </header>
+                        <div class="column-body" data-drop-target="pending">
+                            <div class="column-empty">Drop agents or tasks here</div>
+                        </div>
+                    </div>
+
+                    <div class="board-column" data-column="queue">
+                        <header class="column-header column-header-queue">
+                            <span class="column-title">Queue</span>
+                            <span class="column-count" data-count="queue">0</span>
+                            <button class="reset-btn" id="btn-reset-queue" title="Reset all task states to pending (clears RUNNING/DONE/FAILED)">↺</button>
+                            <button class="play-btn" id="btn-play-queue" title="Run Queue top to bottom" disabled>▶</button>
+                        </header>
+                        <div class="column-body" data-drop-target="queue">
+                            <div class="column-empty">Drag tasks here to queue them</div>
+                        </div>
+                    </div>
+
+                    <div class="board-column" data-column="completed">
+                        <header class="column-header column-header-completed">
+                            <span class="column-title">Completed</span>
+                            <span class="column-count" data-count="completed">0</span>
+                        </header>
+                        <div class="column-body" data-drop-target="completed">
+                            <div class="column-empty">Finished tasks land here</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Empty state when no project active -->
+            <div class="board-empty-state hidden" id="board-empty-state">
+                <div class="empty-state-inner">
+                    <h2>No project selected</h2>
+                    <p>Create a project or pick one from the dropdown above to start building your pipeline.</p>
+                    <button class="btn btn-success" id="btn-create-first-project">+ Create Project</button>
                 </div>
-            </div><!-- /container -->
-        </div>
-
-        <!-- ── Global Action Bar (visible on Projects tab) ── -->
-        <div id="global-action-bar" class="global-action-bar hidden">
-            <button id="btn-run-pipeline" class="action-btn btn-run">
-                ▶ Run Pipeline
-            </button>
-            <button id="btn-stop" class="action-btn btn-stop" disabled>
-                ⏹ Stop
-            </button>
-            <button id="btn-save" class="action-btn btn-save">
-                💾 Save
-            </button>
-            <div id="action-bar-status" class="action-bar-status"></div>
-        </div>
-
-        <!-- ── Live Output Terminal Panel (visible on Projects tab) ── -->
-        <div id="terminal-panel" class="terminal-panel">
-            <div class="terminal-header" id="terminal-header-toggle">
-                <span>⌨️ Live Output</span>
-                <span id="terminal-toggle-icon">▼</span>
-            </div>
-            <div id="terminal-content" class="terminal-content">
-                <div id="terminal-log" class="terminal-log"></div>
             </div>
         </div>
 
-        <!-- ── Pipeline Tab ── -->
-        <div id="pipeline" class="tab-content">
-            <div class="container">
-                <hr style="margin: 2rem 0; border: 0; border-top: 1px solid #ddd;">
-                <h2>Automation Pipeline</h2>
-                    <p>Build your prompt sequence. Toggle tasks to select which ones run during orchestration.</p>
-                    
-                    <div id="orchestration-bar" class="orchestration-bar" style="display: none;">
-                        <button class="btn-orchestrate" id="btn-start-orchestration">▶ Start Sequence</button>
-                        <button class="btn-stop-sequence" id="btn-stop-sequence" disabled>⏹ Stop Sequence</button>
-                        <button class="btn-reset-tasks" id="btn-reset-tasks">↻ Reset Tasks</button>
-                          <select class="agent-select-all" id="assign-all-agents" title="Assign agent to all tasks">
-                              <option value="">— Assign All —</option>
-                              <option value="baton-code">Baton Code</option>
-                              <option value="baton-code-thinking">Baton Code - Thinking</option>
-                              <option value="aider">Aider</option>
-                              <option value="cline">Cline</option>
-                              <option value="telegram">Telegram</option>
-                          </select>
-                        <div class="orchestration-status" id="orchestration-status"></div>
-                    </div>
-                    
-                    <div id="pipeline-editor" class="pipeline-editor">
-                        <!-- Prompt rows will be injected here -->
-                    </div>
-                    
-                    <button class="btn btn-success" style="margin-top: 1rem;" id="btn-add-prompt">+ Add Prompt</button>
-            </div><!-- /container -->
-        </div>
+        <!-- ── Live Output Terminal Panel ──
+             COMING SOON — removed from the front-end pending a rewrite.
+             The backend still emits all the events (SSE: /api/project/:id/tasks/stream
+             and the JSONL session logs under /logs), but the v1 panel had several
+             unresolved issues:
+               • Duplicate task_start events from SSE + log-tail created phantom
+                 task groups so the visible feed lagged behind the real one.
+               • The collapse toggle binding got dropped after header re-renders.
+               • The docked-drawer layering produced stray strips at the top of
+                 the viewport in some states.
+             See modules/terminal.js — currently a no-op stub that preserves the
+             window.__terminalHooks contract so modules/board.js and projects.js
+             keep working. Re-introduce by restoring this markup + un-hiding the
+             .terminal-* rules in board.css. -->
+
 
         <!-- ── Requirements Tab ── -->
         <div id="requirements" class="tab-content">
@@ -136,7 +201,18 @@
                                         </label>
                                         <span class="toggle-text">📨 Add Telegram</span>
                                     </label>
+                                    <label class="default-agent-label" title="Default agent for all extracted tasks">
+                                        <span class="toggle-text">🤖 Agent:</span>
+                                        <select id="default-agent-select">
+                                            <option value="auto">Auto (heuristic)</option>
+                                            <option value="aider">Aider</option>
+                                            <option value="cline">Cline</option>
+                                            <option value="baton-code">Baton Code</option>
+                                            <option value="baton-code-thinking">Baton Code (Thinking)</option>
+                                        </select>
+                                    </label>
                                 </div>
+
                                 <textarea id="chat-input" placeholder="Describe your project..."></textarea>
                                 <button id="btn-send-chat">Send</button>
                             </div>
@@ -151,9 +227,9 @@
             </div><!-- /container -->
         </div>
 
+        <!-- ── Logs Tab ── -->
         <div id="log-viewer" class="tab-content">
             <div class="container">
-                <!-- Settings trigger button -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h2 style="margin: 0;">Recorded Sessions</h2>
                     <button class="settings-trigger" id="btn-open-settings">⚙️ Configuration</button>
@@ -168,7 +244,6 @@
                         <h2>⚙️ Configuration</h2>
                         <button class="drawer-close" id="btn-close-settings-drawer">✕</button>
                     </div>
-                    <!-- Drawer Tab Switcher -->
                     <div class="drawer-tabs">
                         <button class="drawer-tab-btn active" data-drawer-tab="global">🌐 Global Config</button>
                         <button class="drawer-tab-btn" data-drawer-tab="project">📁 Per-Project Config</button>
@@ -176,7 +251,6 @@
                         <button class="drawer-tab-btn" data-drawer-tab="mcp">🔌 MCP Servers</button>
                     </div>
                     <div class="drawer-body">
-                        <!-- Global Config Tab -->
                         <div id="settings-tab-global" class="drawer-tab-content active">
                             <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure the LLM service settings globally. These defaults will be used when triggering agents for projects (unless project-level overrides are set).</p>
                             <div class="config-section">
@@ -224,7 +298,6 @@
                             </div>
                         </div>
 
-                        <!-- Per-Project Config Tab -->
                         <div id="settings-tab-project" class="drawer-tab-content">
                             <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure LLM service settings for a specific project. Project-level settings override the global defaults.</p>
                             <div class="project-select-wrapper">
@@ -285,7 +358,6 @@
                             </div>
                         </div>
 
-                        <!-- Telegram Config Tab -->
                         <div id="settings-tab-telegram" class="drawer-tab-content">
                             <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure Telegram so you can send prompts to yourself via a bot. Select <strong>Telegram</strong> as the agent for any task to deliver the prompt text as a Telegram message.</p>
 
@@ -309,11 +381,9 @@
                             </div>
                         </div>
 
-                        <!-- MCP Servers Tab -->
                         <div id="settings-tab-mcp" class="drawer-tab-content">
-                            <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure MCP (Model Context Protocol) servers to extend the Baton Code agent with additional tools. Enabled servers will be connected automatically when running Baton Code tasks.</p>
+                            <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure MCP (Model Context Protocol) servers to extend the Baton Code agent with additional tools.</p>
 
-                            <!-- Git MCP Server Card -->
                             <div class="mcp-server-card" id="mcp-server-git">
                                 <div class="mcp-server-header">
                                     <div class="mcp-server-title">
@@ -330,15 +400,6 @@
                                 </div>
                                 <div class="mcp-server-details">
                                     <p class="mcp-server-description">Official Git MCP Server by Anthropic. Provides Git version control tools for the Baton Code agent.</p>
-                                    <div class="mcp-server-tools">
-                                        <strong>Available tools:</strong>
-                                        <span class="mcp-tool-tag">git_commit</span>
-                                        <span class="mcp-tool-tag">git_push</span>
-                                        <span class="mcp-tool-tag">git_diff</span>
-                                        <span class="mcp-tool-tag">git_log</span>
-                                        <span class="mcp-tool-tag">git_branch</span>
-                                        <span class="mcp-tool-tag">git_status</span>
-                                    </div>
                                     <div class="mcp-server-config">
                                         <div class="config-section">
                                             <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.82rem;">Command</label>
@@ -347,17 +408,7 @@
                                         <div class="config-section" style="margin-top: 0.75rem;">
                                             <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.82rem;">Arguments (JSON array)</label>
                                             <input type="text" id="mcp-git-args" value='["-y", "@anthropic-ai/mcp-server-git"]' class="config-input" style="font-size: 0.82rem; font-family: monospace;">
-                                            <small style="color: #888; display: block; margin-top: 4px; font-size: 0.72rem;">JSON array of arguments passed to the command</small>
                                         </div>
-                                    </div>
-                                    <div class="mcp-installation-guide">
-                                        <strong>📋 Installation:</strong>
-                                        <p>The Git MCP server requires Node.js. Installation options:</p>
-                                        <ol>
-                                            <li><strong>Global install (recommended):</strong> <code>npm install -g @anthropic-ai/mcp-server-git</code> then use command: <code>mcp-server-git</code></li>
-                                            <li><strong>Use npx (default):</strong> Command: <code>npx</code>, Args: <code>["-y", "@anthropic-ai/mcp-server-git"]</code> — auto-installs on first use</li>
-                                        </ol>
-                                        <p><small>More info: <a href="https://github.com/anthropics/mcp-servers" target="_blank">github.com/anthropics/mcp-servers</a></small></p>
                                     </div>
                                 </div>
                             </div>
@@ -372,8 +423,6 @@
                     </div>
                 </div>
 
-                <!-- Search Bar -->
-                <!-- Bulk Action Bar -->
                 <div id="bulk-action-bar" class="bulk-action-bar hidden">
                     <span id="selected-count"></span>
                     <button class="btn btn-danger" id="btn-delete-selected">🗑️ Delete Selected (<span id="delete-count">0</span>)</button>
@@ -385,7 +434,6 @@
                     <span id="search-count" class="search-count"></span>
                 </div>
 
-                <h2 style="display: none;">Recorded Sessions</h2>
                 <div id="list-view">
                     <div class="session-list">
                 <table>
@@ -405,24 +453,23 @@
             </div>
                     </div>
                 </div>
-            
+
                 <div id="detail-view">
             <a class="back-link" id="btn-back-to-list">← Back to List</a>
             <h2 id="session-title">Session Detail</h2>
-            
-            <!-- JSON View Toggle -->
+
             <div class="json-view-toggle">
                 <button class="json-view-btn active" id="btn-tree-view">🌳 Tree</button>
                 <button class="json-view-btn" id="btn-raw-view">📄 Raw</button>
             </div>
-            
+
             <div id="chat-display" class="chat-container"></div>
             <hr style="margin: 2rem 0; border: 0; border-top: 1px solid #eee;">
             <h3>JSON Viewer</h3>
             <div id="json-tree-container" style="background: #272822; color: #f8f8f2; padding: 1rem; border-radius: 5px; overflow-x: auto; font-size: 0.82rem; max-height: 600px; overflow-y: auto;"></div>
             <pre id="json-raw-content" style="background: #272822; color: #f8f8f2; padding: 1rem; border-radius: 5px; overflow-x: auto; font-size: 0.82rem; max-height: 600px; overflow-y: auto; display: none;"></pre>
                 </div>
-            </div><!-- /container -->
+            </div>
         </div>
 
          <!-- Project Editor Drawer -->
@@ -454,7 +501,6 @@
                          <option value="cline">🟠 Cline</option>
                          <option value="telegram">📨 Telegram</option>
                      </select>
-                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Agent used when running tasks for this project</small>
                  </div>
 
                  <hr style="margin: 1.5rem 0; border-top: 1px solid #eee;">
@@ -473,7 +519,6 @@
                          <option value="gemini">Google Gemini</option>
                          <option value="x-ai">X AI (Grok)</option>
                      </select>
-                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Leave empty to use global default</small>
                  </div>
                  <div class="config-section">
                      <label class="config-label">API Base URL</label>
@@ -497,17 +542,78 @@
              </div>
          </div>
 
+         <!-- Card Detail Drawer -->
+         <div id="card-detail-backdrop" class="drawer-backdrop"></div>
+         <div id="card-detail-drawer" class="card-detail-drawer">
+             <div class="drawer-header">
+                 <h2>📝 Task Detail</h2>
+                 <button class="drawer-close" id="btn-close-card-detail">✕</button>
+             </div>
+             <div class="drawer-body">
+                 <div class="card-detail-meta">
+                     <span class="card-detail-state" id="card-detail-state">pending</span>
+                     <span class="card-detail-agent" id="card-detail-agent">aider</span>
+                 </div>
+                 <div class="config-section">
+                     <label class="config-label">Prompt</label>
+                     <textarea id="card-detail-prompt" rows="10" class="config-input" style="font-family: ui-monospace, monospace; font-size: 0.85rem;"></textarea>
+                 </div>
+                 <div class="config-section">
+                     <label class="config-label">Agent</label>
+                     <select id="card-detail-agent-select" class="config-select">
+                         <option value="baton-code">Baton Code</option>
+                         <option value="baton-code-thinking">Baton Code · Thinking</option>
+                         <option value="cline">Cline</option>
+                         <option value="aider">Aider</option>
+                         <option value="telegram">Telegram</option>
+                     </select>
+                 </div>
+                 <div class="config-actions">
+                     <button class="btn btn-success" id="btn-save-card-detail">💾 Save</button>
+                     <button class="btn btn-danger" id="btn-delete-card-detail">🗑 Delete Task</button>
+                 </div>
+                 <hr style="margin: 1.5rem 0; border-top: 1px solid #eee;">
+                 <h3 style="font-size: 0.95rem;">Session History</h3>
+                 <div id="card-detail-sessions" class="card-detail-sessions">
+                     <p style="color: #888; font-size: 0.85rem;">No sessions yet for this task.</p>
+                 </div>
+             </div>
+         </div>
+
+        <!-- Quick "Create Project" modal -->
+        <div id="quick-project-backdrop" class="drawer-backdrop"></div>
+        <div id="quick-project-modal" class="quick-project-modal">
+            <div class="quick-project-inner">
+                <h2>Create Project</h2>
+                <div class="config-section">
+                    <label class="config-label">Project Name</label>
+                    <input type="text" id="quick-project-name" class="config-input" placeholder="My Project">
+                </div>
+                <div class="config-section">
+                    <label class="config-label">Working Directory</label>
+                    <input type="text" id="quick-project-workingDir" class="config-input" placeholder="./my-app">
+                </div>
+                <div class="config-actions">
+                    <button class="btn btn-success" id="btn-quick-project-create">Create</button>
+                    <button class="btn" id="btn-quick-project-cancel" style="background: #95a5a6; color: white;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Module scripts (order matters for dependencies) -->
         <script defer src="modules/dom-helpers.js?v=3"></script>
-        <script defer src="modules/core.js?v=4"></script>
-        <script defer src="modules/chat.js?v=2"></script>
-        <script defer src="modules/projects.js?v=3"></script>
-         <script defer src="modules/pipeline.js?v=5"></script>
+        <script defer src="modules/core.js?v=6"></script>
+        <script defer src="modules/chat.js?v=4"></script>
+
+        <script defer src="modules/projects.js?v=4"></script>
+        <script defer src="modules/board.js?v=2"></script>
         <script defer src="modules/project-editor.js?v=3"></script>
-        <script defer src="modules/sessions.js?v=4"></script>
+        <script defer src="modules/sessions.js?v=5"></script>
         <script defer src="modules/json-viewer.js?v=3"></script>
         <script defer src="modules/search.js?v=3"></script>
-         <script defer src="modules/settings.js?v=4"></script>
-         <script defer src="modules/terminal.js?v=2"></script>
+        <script defer src="modules/settings.js?v=4"></script>
+        <script defer src="modules/terminal.js?v=7-stub"></script>
+        <script defer src="modules/theme.js?v=1"></script>
+
      </body>
 </html>

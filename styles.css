@@ -661,6 +661,47 @@
             font-weight: 600;
             white-space: nowrap;
         }
+        /* ── Default Agent Selector (Requirements tab) ── */
+        .default-agent-label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-left: auto;
+            font-size: 0.82rem;
+            color: #555;
+            user-select: none;
+        }
+        .default-agent-label .toggle-text {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        #default-agent-select {
+            padding: 3px 8px;
+            border: 1px solid #d0d4dc;
+            border-radius: 6px;
+            background: #fff;
+            font-size: 0.8rem;
+            color: #333;
+            cursor: pointer;
+        }
+        #default-agent-select:hover {
+            border-color: #667eea;
+        }
+        /* ── Per-task agent dropdown in the Extracted Requirements sidebar ── */
+        .req-agent-select {
+            padding: 2px 6px;
+            border: 1px solid #d0d4dc;
+            border-radius: 6px;
+            background: #fff;
+            font-size: 0.7rem;
+            color: #333;
+            cursor: pointer;
+            max-width: 130px;
+        }
+        .req-agent-select:hover {
+            border-color: #667eea;
+        }
+
         .requirements-sidebar {
             width: 100%;
             flex-shrink: 0;

@@ -108,24 +108,25 @@
         /* ── Tab switching (uses data-tab attributes) ── */
         function openTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-btn, .nav-btn').forEach(b => b.classList.remove('active'));
             const target = document.getElementById(tabId);
             if (target) target.classList.add('active');
-            // Find the button that references this tab
-            const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+            // Tag the body with the active tab so global CSS can show/hide chrome (e.g. context bar)
+            document.body.className = document.body.className
+                .split(' ')
+                .filter(c => !c.startsWith('tab-'))
+                .concat(['tab-' + tabId])
+                .join(' ')
+                .trim();
+            // Find the button that references this tab (new nav-btn or legacy tab-btn)
+            const btn = document.querySelector(`.nav-btn[data-tab="${tabId}"], .tab-btn[data-tab="${tabId}"]`);
             if (btn) btn.classList.add('active');
 
-            // Show/hide global action bar and terminal panel based on tab
-            // Only show on Projects tab, hide on Pipeline and Logs & Settings tabs
-            const actionBar = document.getElementById('global-action-bar');
+            // Show/hide terminal panel based on tab — only on the board.
             const terminalPanel = document.getElementById('terminal-panel');
-            if (tabId === 'projects') {
-                // Show on Projects tab (respect existing visible/hidden state)
-                if (actionBar) actionBar.classList.remove('hidden');
+            if (tabId === 'board') {
                 if (terminalPanel) terminalPanel.style.display = '';
             } else {
-                // Hide on Pipeline and Logs & Settings tabs
-                if (actionBar) actionBar.classList.add('hidden');
                 if (terminalPanel) terminalPanel.style.display = 'none';
             }
 
@@ -135,16 +136,14 @@
             }
 
             // Reload config every time the user navigates to the log-viewer tab
-            // so the settings drawer always shows the latest saved values
             if (tabId === 'log-viewer') loadConfig();
 
-            // When switching to Projects tab, refresh pipeline state indicators
-            // so prompt statuses are in sync with the server (important when a
-            // sequence is running and the user navigated away and back)
-            if (tabId === 'projects' && typeof window.refreshPipelineStates === 'function') {
+            // When returning to the board, refresh task states from server
+            if (tabId === 'board' && typeof window.refreshPipelineStates === 'function') {
                 window.refreshPipelineStates();
             }
         }
+        window.openTab = openTab;
 
         // ── Status Polling ──
         let proxyStatusInterval = null;
@@ -243,8 +242,8 @@
 
         /* ── Event Listeners (bound after DOM ready) ── */
         function bindCoreEventListeners() {
-            // Tab switching buttons
-            document.querySelectorAll('.tab-btn').forEach(btn => {
+            // Tab switching buttons (legacy .tab-btn + new .nav-btn)
+            document.querySelectorAll('.tab-btn, .nav-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
                     const tabId = this.getAttribute('data-tab');
                     if (tabId) openTab(tabId);
@@ -269,6 +268,10 @@
         // Bind listeners and load config once DOM is ready
         function initCore() {
             bindCoreEventListeners();
+            // Default body tab class so CSS shows the right chrome on first paint.
+            if (!document.body.className.split(' ').some(c => c.startsWith('tab-'))) {
+                document.body.classList.add('tab-board');
+            }
             // Auto-load global LLM configuration on page load so settings fields
             // are populated immediately after a refresh/restart, without requiring
             // the user to navigate to the Logs & Settings tab first.

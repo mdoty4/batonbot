@@ -11,11 +11,12 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot m
 
 ## ✨ Key Features
 
-- **Visual Pipeline Editor**: Drag-and-drop interface to reorder tasks and refine your workflow.
-- **Multi-Agent Coordination**: Assign different agents to different steps within a single project sequence.
+- **Kanban Task Board**: Drag-and-drop board with `Pending`, `Queue`, and `Completed` columns — drop cards from the agent palette and reorder the queue to shape your sequence. (A linear Pipeline editor view is also available.)
+- **Native + External Agents**: First-class native agents (`baton-code`, `baton-code-thinking`) plus support for **Aider**, **Cline**, and **Telegram** as routable agents within a single project sequence.
 - **Hybrid LLM Support**: Route requests through local servers (LM Studio) for privacy and cost, or connect to enterprise APIs for maximum intelligence.
-- **Real-time Orchestration**: Monitor the state of your pipeline (`Pending`, `Running`, `Done/Failed`) as it executes.
-- **Project-Based Management**: Organize different sequences into dedicated projects.
+- **Real-time Orchestration**: Monitor live task state (`pending`, `in_progress`, `planning`, `done`, `failed`, `stopped`) via SSE, with **Play / Pause / Cancel** controls on the board.
+- **Project-Based Management**: Organize different sequences into dedicated projects, each with its own working directory and optional LLM overrides.
+- **Built-in Chat**: A chat panel for ad-hoc interaction with the configured LLM, independent of the pipeline.
 - **Transparent Logging**: Every exchange is captured in JSON format for audit and optimization.
 
 <img width="1916" height="1762" alt="Screenshot 2026-05-16 at 11 09 27 AM" src="https://github.com/user-attachments/assets/fc53eff9-8148-4722-ad3b-8f03dce24ace" />
@@ -49,8 +50,24 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
 ### Prerequisites
 
 - **Node.js** 18+ and npm
+- **Git** (must be on `PATH`)
 - **(Optional) Cline CLI** for Cline agent tasks
 - **(Optional) Aider CLI** for Aider agent tasks
+
+> **Cross-platform**: BatonBot runs on **macOS, Linux, and Windows** from a single codebase. Platform-specific differences (process spawning, child-tree termination) are handled internally via `process.platform` detection — no separate Windows build required.
+
+### Windows-specific notes
+
+BatonBot works natively on Windows 10 / 11 with PowerShell or cmd. A few things to know:
+
+- **Agent CLIs must be on `PATH`.** `cline`, `aider`, and `git` are installed as `.cmd` shims on Windows; BatonBot detects Windows and spawns through `cmd.exe` automatically so the shims resolve correctly.
+- **Creating `.env`**: PowerShell users can run `New-Item .env` or just create the file in VS Code.
+- **`test_api.sh` / `verify_isolation.sh`** are bash scripts — run them from **Git Bash** or **WSL** if you need them. The app itself does not depend on these scripts.
+- **WSL2** is fully supported and recommended if you want the macOS/Linux experience. Inside WSL, BatonBot behaves exactly like it does on Linux.
+- **Working directories**: Use forward slashes or escaped backslashes in project working directories (e.g. `C:/Users/you/projects/foo` or `C:\\Users\\you\\projects\\foo`). Node's `path` module handles either form correctly.
+- **Long paths**: If your project is deeply nested, enable Windows long-path support (`git config --system core.longpaths true`) to avoid `ENAMETOOLONG` errors.
+- **Antivirus**: Real-time AV can slow down `npm install` and child-process spawning significantly. Consider whitelisting your project folder if you see sluggish behavior.
+
 
 ### Setup
 
@@ -72,7 +89,12 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
     LM_STUDIO_URL=http://localhost:1234/v1
     ```
 
-4.  **Start the server**:
+4.  **Initialize project state**:
+    ```bash
+    cp prompts.json.example prompts.json
+    ```
+
+5.  **Start the server**:
     ```bash
     npm start
     ```
@@ -143,18 +165,24 @@ Configure your agents through the web UI at **Settings**:
 
 To route an agent's requests through BatonBot:
 - Set the **API Provider** to `OpenAI Compatible`
-- Set the **Base URL** to `http://localhost:4321/`
+- Set the **Base URL** to `http://localhost:4321/v1`
 
-### 2. Building a Pipeline
+### 2. Building a Sequence (Board or Pipeline view)
 
 - Navigate to the **Projects** tab and activate a project
-- In the **Pipeline** editor, add prompt rows
-- Assign an agent (Aider or Cline) to each row
-- Toggle the "Orchestrate" switch for the tasks you want to include in the sequence
+- Open the **Board** (Kanban) view — add cards from the agent palette and drag them between `Pending`, `Queue`, and `Completed` columns; reorder cards within the Queue to set execution order
+- Or use the **Pipeline** editor view to add prompt rows linearly
+- Assign an agent to each card/row. Available agents:
+  - `baton-code` — native BatonBot agent
+  - `baton-code-thinking` — native BatonBot agent with chain-of-thought planning
+  - `aider` — external Aider CLI
+  - `cline` — external Cline CLI
+  - `telegram` — sends the prompt as a Telegram message
+- Click a card to open the detail drawer for prompt editing and per-task history
 
 ### 3. Executing the Sequence
 
-Click **▶ Start Sequence**. BatonBot will execute the selected prompts in order, managing the hand-off between agents and tracking progress in real-time.
+Click **▶ Start Sequence** (or the Play button on the board). BatonBot will execute queued tasks in order, managing the hand-off between agents and emitting live SSE state updates (`pending` → `planning` → `in_progress` → `done` / `failed` / `stopped`). Use **Pause** to stop after the current task settles, or **Cancel** to terminate immediately.
 
 ---
 
@@ -186,8 +214,8 @@ Base URL: `http://localhost:4321`
 {
   "status": "ok",
   "uptime": 1234.56,
-  "timestamp": "2025-04-27T20:00:00.000Z",
-  "version": "1.0.0"
+  "timestamp": "2026-05-16T18:00:00.000Z",
+  "version": "2.1.0"
 }
 ```
 
@@ -219,6 +247,7 @@ Base URL: `http://localhost:4321`
 | `POST` | `/api/project/:id/tasks/orchestrate` | Start orchestration with selected tasks |
 | `POST` | `/api/project/:id/tasks/reset` | Reset all task states to pending |
 | `POST` | `/api/project/:id/tasks/cancel` | Cancel running orchestration |
+| `POST` | `/api/project/:id/tasks/pause` | Pause after the current task settles |
 | `GET` | `/api/project/:id/tasks/stream` | SSE stream for real-time orchestration events |
 
 **Orchestrate Request:**
@@ -280,27 +309,36 @@ Base URL: `http://localhost:4321`
 ```
 batonbot/
 ├── batonbot.js              # Main server: Express routes, agent orchestration, execution engine
-├── app.js                # Additional app logic
-├── skill.md              # OpenClaw skill file for agent integration
-├── index.html            # Frontend entry point
-├── styles.css            # Application styles
-├── prompts.json          # Project state, tasks, and configuration storage
-├── .env                  # Environment variables (PORT, LM_STUDIO_URL)
-├── Dockerfile            # Docker image definition
-├── docker-compose.yml    # Docker Compose configuration
-├── modules/              # Frontend JavaScript modules
-│   ├── chat.js           # Chat interface logic
-│   ├── core.js           # Core system operations
-│   ├── dom-helpers.js    # DOM manipulation utilities
-│   ├── json-viewer.js    # JSON log viewer
-│   ├── pipeline.js       # Visual pipeline editor
-│   ├── project-editor.js # Project editing UI
-│   ├── projects.js       # Project management
-│   ├── search.js         # Search functionality
-│   ├── sessions.js       # Session management
-│   ├── settings.js       # Settings panel
-│   └── terminal.js       # Terminal output display
-└── logs/                 # Agent exchange logs (JSONL format)
+├── app.js                   # Shared global state + frontend module load order
+├── skill.md                 # OpenClaw skill file for agent integration
+├── index.html               # Frontend entry point
+├── styles.css               # Application styles
+├── board.css                # Kanban board styles
+├── prompts.json.example     # Template for initial project state (copy to prompts.json)
+├── prompts.json             # Project state, tasks, and configuration storage (gitignored)
+├── .env                     # Environment variables (PORT, LM_STUDIO_URL)
+├── Dockerfile               # Docker image definition
+├── docker-compose.yml       # Docker Compose configuration
+├── docker/                  # Docker support files
+├── modules/                 # Frontend JavaScript modules + backend agent runtime
+│   ├── board.js             # Kanban task board (Pending / Queue / Completed)
+│   ├── chat.js              # Chat interface logic
+│   ├── core.js              # App init, tabs, proxy polling
+│   ├── dom-helpers.js       # DOM manipulation utilities
+│   ├── json-viewer.js       # JSON log viewer
+│   ├── micro-agents.js      # Backend agent runtime (callLLM, tree-kill, agent loops)
+│   ├── pipeline.js          # Linear pipeline editor view
+│   ├── project-editor.js    # Project editing UI
+│   ├── projects.js          # Project management
+│   ├── search.js            # Search/filter across views
+│   ├── sessions.js          # Session loading and viewing
+│   ├── settings.js          # Settings panel
+│   ├── terminal.js          # Terminal panel + SSE log stream
+│   ├── theme.js             # Theme switching
+│   └── agents/              # Native agent definitions
+│       ├── baton-code.js
+│       └── baton-code-thinking.js
+└── logs/                    # Agent exchange logs (JSONL format)
 ```
 
 ---

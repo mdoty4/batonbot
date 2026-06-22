@@ -1,0 +1,16 @@
+# Enforce LF line endings across all platforms.
+# Critical for JSONL log files in logs/ — the BatonBot log parser splits on '\n',
+# and CRLF endings introduced by Git on Windows would corrupt log entries.
+* text=auto eol=lf
+
+# Binary files — never normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+
+# Shell scripts must keep LF endings (would break on Linux/macOS otherwise)
+*.sh text eol=lf

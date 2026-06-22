@@ -15,7 +15,7 @@ description: >-
 
 | Detail | Value |
 |--------|-------|
-| **Project Root** | `` |
+| **Project Root** | `/Users/michaeldoty/code/batonbot_open/dev/batonbot` |
 | **Local Port** | `4321` |
 | **Web UI** | `http://localhost:4321` |
 | **API Base** | `http://localhost:4321/api` |
@@ -23,7 +23,7 @@ description: >-
 | **Logs Dir** | `logs/` (JSONL format) |
 
 > **Important**: Always `cd` to the project root before running npm commands.
-> Docker is not used — run the server directly via npm.
+> Docker is also supported (`docker compose up --build -d`) — see the README's Docker Deployment section. For local dev, run the server directly via npm.
 
 ---
 
@@ -49,8 +49,8 @@ Expected response:
 {
   "status": "ok",
   "uptime": 1234.56,
-  "timestamp": "2026-04-27T20:00:00.000Z",
-  "version": "1.0.0"
+  "timestamp": "2026-05-16T18:00:00.000Z",
+  "version": "2.1.0"
 }
 ```
 
@@ -114,7 +114,8 @@ curl -X POST http://localhost:4321/api/projects \
 | `POST` | `/api/project/:id/tasks` | Update tasks for a project |
 | `POST` | `/api/project/:id/tasks/orchestrate` | Start orchestration with selected tasks |
 | `POST` | `/api/project/:id/tasks/reset` | Reset all task states to pending |
-| `POST` | `/api/project/:id/tasks/cancel` | Cancel running orchestration |
+| `POST` | `/api/project/:id/tasks/cancel` | Cancel running orchestration immediately |
+| `POST` | `/api/project/:id/tasks/pause` | Pause orchestration after the current task settles |
 | `GET` | `/api/project/:id/tasks/stream` | SSE stream for real-time events |
 
 **Start orchestration example:**
@@ -194,10 +195,10 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
      -d '{"projectId":"<the-id-from-step-2>"}'
    ```
 
-4. **Add pipeline tasks** via the Web UI (`http://localhost:4321` → Pipeline tab) or API:
-   - Add prompt rows
-   - Assign agents (`cline` or `aider`) to each row
-   - Toggle "Orchestrate" for tasks to include in the sequence
+4. **Add tasks** via the Web UI (`http://localhost:4321` → **Board** tab for the Kanban view, or **Pipeline** tab for the linear view) or API:
+   - Add prompt cards/rows
+   - Assign an agent: `baton-code`, `baton-code-thinking`, `cline`, `aider`, or `telegram`
+   - Toggle "Orchestrate" (or drop the card into the **Queue** column on the board) for tasks to include in the sequence
 
 5. **Execute** via the Web UI (▶ Start Sequence) or API:
    ```bash
@@ -246,17 +247,37 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 
 ## Supported Agents
 
-| Agent | Type | How it runs |
-|-------|------|-------------|
-| **Cline** | CLI | Spawns `cline --json -y "<prompt>"` as a child process |
-| **Aider** | CLI | Spawns `aider --yes-always --message "<prompt>"` as a child process |
-| **Telegram** | HTTP | Sends prompt via Telegram Bot API |
+The agent registry in `batonbot.js` exposes five routable agents. Use the `agent` string exactly as shown when assigning tasks via the API.
+
+| Agent ID | Type | How it runs |
+|----------|------|-------------|
+| **`baton-code`** | Native | In-process agent (see `modules/agents/baton-code.js` + `modules/micro-agents.js`). Talks directly to the configured LLM endpoint — no external CLI required. |
+| **`baton-code-thinking`** | Native | Same runtime as `baton-code` with an added chain-of-thought / planning step. |
+| **`cline`** | CLI | Spawns `cline --json -y "<prompt>"` as a child process |
+| **`aider`** | CLI | Spawns `aider --yes-always --message "<prompt>"` as a child process |
+| **`telegram`** | HTTP | Sends the prompt as a Telegram message via the Bot API |
 
 ### Agent Requirements
 
-- **Cline**: `cline` CLI must be installed and in PATH
-- **Aider**: `aider` CLI must be installed and in PATH, LLM config via Settings
-- **Telegram**: Bot token and chat ID configured in Settings
+- **`baton-code` / `baton-code-thinking`**: Only an OpenAI-compatible LLM endpoint configured in Settings (or per-project). No external CLI needed.
+- **`cline`**: `cline` CLI must be installed and in PATH
+- **`aider`**: `aider` CLI must be installed and in PATH, LLM config via Settings
+- **`telegram`**: Bot token and chat ID configured in Settings
+
+### Task States
+
+Tasks emitted by `/api/project/:id/tasks` and the `/tasks/stream` SSE feed use this state enum:
+
+```
+pending | planning | in_progress | done | failed | stopped
+```
+
+- `pending` — queued, not yet started
+- `planning` — `baton-code-thinking` is producing a plan before execution
+- `in_progress` — agent is actively running
+- `done` — completed successfully
+- `failed` — agent or runtime error
+- `stopped` — user-cancelled (Cancel or Pause-then-Cancel)
 
 ---
 
@@ -264,21 +285,34 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 
 ```
 batonbot/
-├── .env                    # Environment variables (PORT, LM_STUDIO_URL)
+├── .env                       # Environment variables (PORT, LM_STUDIO_URL)
 ├── batonbot.js                # Main server: Express routes, orchestration engine
-├── prompts.json            # Project state, tasks, agent config, execution state
-├── app.js                  # Additional app logic
-├── index.html              # Frontend entry point
-├── styles.css              # Application styles
-├── modules/                # Frontend JavaScript modules
-│   ├── chat.js             # Chat interface
-│   ├── core.js             # Core system operations
-│   ├── pipeline.js         # Visual pipeline editor
-│   ├── projects.js         # Project management
-│   ├── settings.js         # Settings panel
-│   ├── terminal.js         # Terminal output display
-│   └── ...
-└── logs/                   # Agent session logs (JSONL format)
+├── prompts.json               # Project state, tasks, agent config, execution state
+├── prompts.json.example       # Template for initial state (copy to prompts.json)
+├── app.js                     # Shared global state + frontend module load order
+├── index.html                 # Frontend entry point
+├── styles.css                 # Application styles
+├── board.css                  # Kanban board styles
+├── Dockerfile / docker-compose.yml  # Docker deployment
+├── modules/                   # Frontend JS modules + backend agent runtime
+│   ├── board.js               # Kanban task board (Pending / Queue / Completed)
+│   ├── pipeline.js            # Linear pipeline editor view
+│   ├── chat.js                # Chat interface
+│   ├── core.js                # App init, tabs, proxy polling
+│   ├── projects.js            # Project management
+│   ├── project-editor.js      # Project editing UI
+│   ├── sessions.js            # Session loading and viewing
+│   ├── settings.js            # Settings panel
+│   ├── terminal.js            # Terminal panel + SSE log stream
+│   ├── search.js              # Search/filter
+│   ├── json-viewer.js         # JSON log viewer
+│   ├── theme.js               # Theme switching
+│   ├── dom-helpers.js         # DOM utilities
+│   ├── micro-agents.js        # Backend agent runtime (callLLM, tree-kill)
+│   └── agents/                # Native agent definitions
+│       ├── baton-code.js
+│       └── baton-code-thinking.js
+└── logs/                      # Agent session logs (JSONL format)
 ```
 
 ### Key Files
@@ -306,7 +340,7 @@ batonbot/
 
 ```bash
 # Navigate to project
-cd /Users/michaeldoty/dev/preprod/batonbot
+cd /Users/michaeldoty/code/batonbot_open/dev/batonbot
 
 # Start server
 npm start

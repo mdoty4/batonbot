@@ -10,7 +10,8 @@
                 const data = await response.json();
                 const projects = data.projects || [];
                 const body = document.getElementById('projects-body');
-                
+                if (!body) return; // Legacy projects tab is gone; board.js owns the project list now.
+
                 if (projects.length === 0) {
                     body.innerHTML = `
                         <tr>
@@ -88,12 +89,21 @@
         async function activateProject(id) {
             activeProjectId = id;
             window.activeProjectId = id;
-            const data = await fetch('/api/projects').then(r => r.json());
-            const project = (data.projects || []).find(p => p.id === id);
-            document.getElementById('active-project-display').textContent = `Active Project: ${project?.name || 'Unknown'}`;
-            await loadPipeline();
-            document.getElementById('pipeline-editor').scrollIntoView({ behavior: 'smooth' });
-            // Notify terminal module to show action bar
+            // Delegate to board.js if available (new UI), else fall back to legacy banner.
+            if (window.__boardHooks && window.__boardHooks.activateProject) {
+                await window.__boardHooks.activateProject(id);
+                return;
+            }
+            const banner = document.getElementById('active-project-display');
+            if (banner) {
+                const data = await fetch('/api/projects').then(r => r.json());
+                const project = (data.projects || []).find(p => p.id === id);
+                banner.textContent = `Active Project: ${project?.name || 'Unknown'}`;
+            }
+            if (typeof loadPipeline === 'function') await loadPipeline();
+            // COMING SOON: Live Output panel. The terminal hook is a no-op stub
+            // today (see modules/terminal.js banner). Wire kept in place so v2
+            // of the panel can drop right in.
             if (window.__terminalHooks && window.__terminalHooks.onProjectActivated) {
                 window.__terminalHooks.onProjectActivated();
             }
@@ -102,10 +112,9 @@
         async function resetProject() {
             activeProjectId = null;
             window.activeProjectId = null;
-            document.getElementById('active-project-display').textContent = 'Active Project: None';
-            document.getElementById('pipeline-editor').innerHTML = '<p style="color: #666; text-align: center;">Please activate a project first in the Projects tab.</p>';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            // Notify terminal module to hide action bar and disconnect stream
+            const banner = document.getElementById('active-project-display');
+            if (banner) banner.textContent = 'Active Project: None';
+            // COMING SOON: Live Output panel. No-op today (see modules/terminal.js).
             if (window.__terminalHooks && window.__terminalHooks.onProjectReset) {
                 await window.__terminalHooks.onProjectReset();
             }
@@ -220,6 +229,11 @@
         } else {
             bindProjectsEventListeners();
         }
+
+        // Expose helpers globally so board.js and other modules can call them.
+        window.editProject = editProject;
+        window.deleteProject = deleteProject;
+        window.createProject = createProject;
 
         // Initial load
         loadProjects();

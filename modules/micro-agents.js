@@ -2,6 +2,18 @@
    Micro Agents — Micro-agent logic
    ═══════════════════════════════════════════ */
 
+/* Cross-platform process tree killer. On Windows, child processes spawned
+   through cmd.exe (shell: true) live as grandchildren — a plain
+   child.kill('SIGTERM') leaves them orphaned. tree-kill walks the OS
+   process tree and reliably terminates every descendant on all platforms. */
+const _treeKill = require('tree-kill');
+function killTree(child, signal = 'SIGTERM') {
+  if (!child || child.killed || !child.pid) return;
+  try { _treeKill(child.pid, signal); }
+  catch (_) { try { child.kill(signal); } catch (__) {} }
+}
+
+
 /**
  * callLLM — Helper that sends a messages array to the BatonBot /api/chat
  * endpoint and returns the full LLM response as a string.
@@ -1085,11 +1097,11 @@ const TOOLS = {
       if (!command) throw new Error('execute_command requires a "command" argument');
 
       return new Promise((resolve, reject) => {
-        const child = spawn(command, [], { cwd, shell: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        const child = spawn(command, [], { cwd, shell: true, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
         let stdout = '';
         let stderr = '';
         const timer = setTimeout(() => {
-          child.kill('SIGTERM');
+          killTree(child, 'SIGTERM');
           reject(new Error(`Command timed out after ${timeout}ms: ${command}`));
         }, timeout);
 
@@ -1360,6 +1372,7 @@ const TOOLS = {
           cwd,
           shell: true,
           stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
           env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
         });
 
@@ -1370,7 +1383,7 @@ const TOOLS = {
         const respondedPatterns = new Set();
 
         const timer = setTimeout(() => {
-          child.kill('SIGTERM');
+          killTree(child, 'SIGTERM');
           reject(new Error(`Interactive command timed out after ${timeout}ms: ${command}`));
         }, timeout);
 
@@ -3596,6 +3609,7 @@ function spawnTestCommand(command, cwd, timeout) {
       cwd,
       shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
     });
 
@@ -3603,7 +3617,7 @@ function spawnTestCommand(command, cwd, timeout) {
     let stderr = '';
 
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      killTree(child, 'SIGTERM');
       reject(new Error(`Test command timed out after ${timeout}ms: ${command}`));
     }, timeout);
 

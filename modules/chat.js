@@ -194,7 +194,13 @@ function bindChatEventListeners() {
 }
 
 // ── Scroll to Bottom Utility ──
-function scrollToBottom() {
+// NOTE: Renamed from `scrollToBottom` to `scrollChatToBottom` to avoid a
+// global-scope name collision with `scrollToBottom(el)` in modules/terminal.js,
+// which loads after this file. The terminal version expected an `el` argument
+// and threw "Cannot read properties of undefined (reading 'scrollTop')" when
+// chat.js called the unqualified name, aborting handleChatSubmit before the
+// /api/chat request could fire.
+function scrollChatToBottom() {
     const container = document.getElementById('chat-messages');
     if (container) {
         container.scrollTop = container.scrollHeight;
@@ -227,10 +233,14 @@ function renderMessages() {
             `;
         }
 
-        // Format assistant messages with markdown-like rendering
+        // Format assistant messages with markdown-like rendering.
+        // For assistant streamed output we first sanitize the <<TASK_N>> tags so the
+        // browser doesn't interpret them as HTML (which produces stray "<>" artifacts
+        // and resets list numbering inside each block).
         const contentHtml = msg.role === 'assistant'
-            ? formatAssistantContent(msg.content)
+            ? formatAssistantContent(sanitizeTaskTagsForDisplay(msg.content))
             : escapeHtml(msg.content);
+
 
         return `
             <div class="chat-message ${roleClass}">
@@ -240,11 +250,33 @@ function renderMessages() {
         `;
     }).join('');
 
-    scrollToBottom();
+    scrollChatToBottom();
+}
+
+// ── Sanitize <<TASK_N>> tags for display ──
+/**
+ * The LLM wraps each step in <<TASK_N>> ... <</TASK_N>> tags. These look like
+ * unknown HTML tags to the browser when we set innerHTML, which causes:
+ *   - Stray "<>" artifacts because the parser eats the unrecognized tag
+ *   - Numbered lists inside each block to restart at "1" because each block
+ *     becomes a separate <ol>
+ *
+ * This helper rewrites the markers into visible labels BEFORE markdown
+ * formatting / innerHTML assignment, so the streamed preview matches the
+ * structured sidebar.
+ */
+function sanitizeTaskTagsForDisplay(text) {
+    if (!text) return '';
+    return text
+        // Replace opening <<TASK_N>> with a styled inline header
+        .replace(/<<\s*TASK_(\d+)\s*>>/g, '\n\n**▸ Task $1**\n\n')
+        // Strip closing <</TASK_N>> entirely (tolerant of whitespace / mismatched N)
+        .replace(/<<\s*\/\s*TASK_\d+\s*>>/g, '');
 }
 
 // ── Format Assistant Content (basic markdown) ──
 function formatAssistantContent(text) {
+
     if (!text) return '';
 
     // Extract code blocks first to protect them from formatting
@@ -413,8 +445,16 @@ const handleChatSend = handleChatSubmit;
 //   CLI Commands:   ```bash\n(...)\```
 //   File Paths:     (src|app|lib|components|pages|api|config)/\w+.\w+
 
-// Pass 1: Main task block extraction
+// Pass 1: Main task block extraction (strict — requires matching N in open/close tags)
 const TASK_BLOCK_REGEX = /<<TASK_(\d+)>>([\s\S]*?)<<\s*\/TASK_\1>>/g;
+
+// Fallback Pass 1: tolerant block extraction — used when strict pass finds nothing.
+// Handles malformed cases where:
+//   - Closing tag has stray whitespace inside (e.g. <</TASK_1 >>)
+//   - Closing tag number doesn't match opening (e.g. <<TASK_1>>...<</TASK_2>>)
+//   - Closing tag is missing entirely (block ends at next <<TASK_ or EOF)
+const TASK_BLOCK_FALLBACK_REGEX = /<<\s*TASK_(\d+)\s*>>([\s\S]*?)(?=<<\s*\/?\s*TASK_\d+\s*>>|$)/g;
+
 
 // Pass 2: Metadata patterns applied to each block's content
 const METADATA_PATTERNS = {
@@ -527,9 +567,11 @@ function extractTaskMetadata(rawText, taskNumber) {
  *   - File Paths:    (src|app|lib|...)/\w+.\w+
  */
 function parseRequirementsFromResponse(fullContent) {
-    // Pass 1: Extract all <<TASK_N>>...<< /TASK_N>> blocks
+    // Pass 1 (strict): Extract all <<TASK_N>>...<</TASK_N>> blocks with matching N
     const tasks = [];
     let match;
+    // Reset lastIndex in case the regex was used previously
+    TASK_BLOCK_REGEX.lastIndex = 0;
 
     while ((match = TASK_BLOCK_REGEX.exec(fullContent)) !== null) {
         const taskNumber = parseInt(match[1], 10);
@@ -541,7 +583,35 @@ function parseRequirementsFromResponse(fullContent) {
         }
     }
 
+    // ── Fallback Pass 1: tolerant parser for malformed tag pairs ──
+    // If the strict regex found nothing (or found suspiciously few blocks compared to
+    // the number of opening tags), retry with the tolerant parser that handles
+    // mismatched N values, stray whitespace in closers, and missing close tags.
+    const openTagCount = (fullContent.match(/<<\s*TASK_\d+\s*>>/g) || []).length;
+    if (tasks.length === 0 || tasks.length < openTagCount) {
+        const seen = new Set(tasks.map(t => t.number));
+        TASK_BLOCK_FALLBACK_REGEX.lastIndex = 0;
+        let fbMatch;
+        while ((fbMatch = TASK_BLOCK_FALLBACK_REGEX.exec(fullContent)) !== null) {
+            const taskNumber = parseInt(fbMatch[1], 10);
+            if (seen.has(taskNumber)) continue;
+            // Strip any trailing close-tag fragments that the tolerant lookahead might leave behind
+            const rawContent = fbMatch[2]
+                .replace(/<<\s*\/?\s*TASK_\d+\s*>>\s*$/g, '')
+                .trim();
+            if (rawContent) {
+                const metadata = extractTaskMetadata(rawContent, taskNumber);
+                tasks.push(metadata);
+                seen.add(taskNumber);
+            }
+        }
+        if (tasks.length > 0 && openTagCount > 0) {
+            console.warn(`[chat.js] Strict parser missed blocks; fallback parser recovered ${tasks.length} of ${openTagCount} task block(s).`);
+        }
+    }
+
     if (tasks.length > 0) {
+
         // Sort by task number to ensure correct order
         tasks.sort((a, b) => a.number - b.number);
 
@@ -554,6 +624,20 @@ function parseRequirementsFromResponse(fullContent) {
             cmds: t.cliCommands.length
         })));
 
+        // ── Apply global default-agent override ──
+        // If the user picked something other than "auto" in the Agent dropdown, force
+        // every non-telegram task to use the selected agent (telegram tasks always
+        // stay as the telegram agent since they require a Telegram Message body).
+        const defaultAgent = document.getElementById('default-agent-select')?.value || 'auto';
+        if (defaultAgent && defaultAgent !== 'auto') {
+            tasks.forEach(task => {
+                if (task.agent !== 'telegram') {
+                    task.agent = defaultAgent;
+                }
+            });
+            console.log(`[chat.js] Applied default-agent override "${defaultAgent}" to ${tasks.length} task(s).`);
+        }
+
         // Clear any previous pending requirements and add new ones
         pendingRequirements.length = 0;
         tasks.forEach(task => {
@@ -561,6 +645,7 @@ function parseRequirementsFromResponse(fullContent) {
         });
         renderPendingRequirements();
         return;
+
     }
 
     console.log('[chat.js] No tagged tasks found in response');
@@ -667,19 +752,34 @@ function renderPendingRequirements() {
         return;
     }
 
+    // Available agents for the per-task dropdown
+    const AGENT_OPTIONS = [
+        { value: 'aider', label: 'Aider' },
+        { value: 'cline', label: 'Cline' },
+        { value: 'baton-code', label: 'Baton Code' },
+        { value: 'baton-code-thinking', label: 'Baton Code (Thinking)' },
+        { value: 'telegram', label: 'Telegram' }
+    ];
+
     list.innerHTML = pendingRequirements.map((req, i) => {
-        // Build metadata badges
+        // Build supplementary metadata badges (file / cli counts)
         const badges = [];
-        if (req.agent) {
-            const agentLabel = req.agent.toUpperCase();
-            badges.push(`<span class="req-badge agent-badge ${req.agent}" title="Assigned agent">${agentLabel}</span>`);
-        }
         if (req.files && req.files.length > 0) {
             badges.push(`<span class="req-badge file-badge" title="Files: ${req.files.join(', ')}">📁 ${req.files.length}</span>`);
         }
         if (req.cliCommands && req.cliCommands.length > 0) {
             badges.push(`<span class="req-badge cmd-badge" title="CLI Commands">⌨ ${req.cliCommands.length}</span>`);
         }
+
+        // Per-task agent dropdown — lets the user override the auto-assigned agent
+        const agentOptionsHtml = AGENT_OPTIONS.map(opt =>
+            `<option value="${opt.value}" ${opt.value === req.agent ? 'selected' : ''}>${opt.label}</option>`
+        ).join('');
+        const agentSelectHtml = `
+            <select class="req-agent-select" data-index="${i}" title="Change agent for this task">
+                ${agentOptionsHtml}
+            </select>
+        `;
 
         // Display text: use stepLabel if available, fallback to numbered task
         const displayText = req.displayText || `Task ${req.number}`;
@@ -693,7 +793,7 @@ function renderPendingRequirements() {
                 <div class="req-content">
                     <div class="req-header">
                         <span class="req-title">${escapeHtml(displayText)}</span>
-                        <div class="req-badges">${badges.join('')}</div>
+                        <div class="req-badges">${agentSelectHtml}${badges.join('')}</div>
                     </div>
                     ${objectivePreview}
                 </div>
@@ -713,6 +813,18 @@ function renderPendingRequirements() {
             if (btnAdd) btnAdd.disabled = !hasSelected;
         });
     });
+
+    // Bind per-task agent dropdown change events
+    list.querySelectorAll('.req-agent-select').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.dataset.index);
+            pendingRequirements[idx].agent = e.target.value;
+            console.log(`[chat.js] Task ${idx} agent changed to "${e.target.value}"`);
+        });
+        // Stop the click from bubbling up to the row's checkbox toggle
+        sel.addEventListener('click', (e) => e.stopPropagation());
+    });
+
 
     // Enable/disable add button
     if (btnAdd) {

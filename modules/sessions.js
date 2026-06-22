@@ -47,34 +47,21 @@ let selectedSessions = new Set();
             try {
                 const response = await fetch('/api/logs/' + id);
                 const rawData = await response.json();
-                const exchanges = Array.isArray(rawData) ? rawData : [rawData];
+                const events = Array.isArray(rawData) ? rawData : [rawData];
                 document.getElementById('session-title').textContent = 'Session: ' + id;
 
                 const chatDisplay = document.getElementById('chat-display');
                 chatDisplay.innerHTML = '';
 
-                exchanges.forEach((exchange, index) => {
-                    if (index > 0) {
-                        const sep = document.createElement('div');
-                        sep.className = 'message system';
-                        sep.textContent = `--- Exchange ${index + 1} ---`;
-                        chatDisplay.appendChild(sep);
-                    }
+                // ── Render compact event timeline ──
+                // Each event becomes a single row with type + timestamp + 1-line preview.
+                // Click a row to expand and see the full JSON inline.
+                // For large logs (e.g. Cline runs with thousands of events) we cap rendered
+                // rows up front and offer a "Show more" button — keeps the UI snappy.
+                renderSessionTimeline(chatDisplay, events);
 
-                    if (exchange.request && exchange.request.messages) {
-                        exchange.request.messages.forEach(msg => {
-                            chatDisplay.appendChild(createMessageElement(msg.role, msg.content));
-                        });
-                    }
-
-                    if (exchange.response) {
-                        const assistantContent = parseSSEResponse(exchange.response);
-                        chatDisplay.appendChild(createMessageElement('assistant', assistantContent));
-                    }
-                });
-
-                // Render JSON tree view
-                renderJsonView(exchanges);
+                // Render JSON tree view (still useful for advanced inspection)
+                renderJsonView(events);
 
                 document.getElementById('list-view').style.display = 'none';
                 document.getElementById('detail-view').style.display = 'block';
@@ -82,6 +69,162 @@ let selectedSessions = new Set();
                 console.error(e);
                 alert('Error loading session details');
             }
+        }
+
+        /* ── Compact timeline renderer ──
+         * Display-only. Does NOT change how the backend reads or writes logs.
+         * The completion-detection engine (batonbot.js → appendToClineLog →
+         * checkClineCompletionAndTriggerNext) inspects events at write time,
+         * in memory, and never depends on this function. */
+        const TIMELINE_BATCH_SIZE = 200;
+
+        function renderSessionTimeline(container, events) {
+            const summary = buildSessionSummary(events);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'session-timeline';
+
+            // Summary header (counts of important events)
+            const sumEl = document.createElement('div');
+            sumEl.className = 'timeline-summary';
+            sumEl.innerHTML = summary.html;
+            wrapper.appendChild(sumEl);
+
+            const list = document.createElement('div');
+            list.className = 'timeline-list';
+            wrapper.appendChild(list);
+
+            let rendered = 0;
+            const total = events.length;
+
+            function renderBatch() {
+                const end = Math.min(rendered + TIMELINE_BATCH_SIZE, total);
+                const frag = document.createDocumentFragment();
+                for (let i = rendered; i < end; i++) {
+                    frag.appendChild(createTimelineRow(events[i], i));
+                }
+                list.appendChild(frag);
+                rendered = end;
+
+                // Add or remove "Show more" footer
+                const existingFooter = wrapper.querySelector('.timeline-footer');
+                if (existingFooter) existingFooter.remove();
+
+                if (rendered < total) {
+                    const footer = document.createElement('div');
+                    footer.className = 'timeline-footer';
+                    footer.innerHTML = `
+                        <span>Showing ${rendered.toLocaleString()} of ${total.toLocaleString()} events</span>
+                        <button class="btn timeline-show-more" type="button">Show next ${Math.min(TIMELINE_BATCH_SIZE, total - rendered)}</button>
+                        <button class="btn timeline-show-all" type="button">Show all</button>
+                    `;
+                    footer.querySelector('.timeline-show-more').addEventListener('click', renderBatch);
+                    footer.querySelector('.timeline-show-all').addEventListener('click', () => {
+                        const frag2 = document.createDocumentFragment();
+                        for (let i = rendered; i < total; i++) {
+                            frag2.appendChild(createTimelineRow(events[i], i));
+                        }
+                        list.appendChild(frag2);
+                        rendered = total;
+                        const f = wrapper.querySelector('.timeline-footer');
+                        if (f) f.remove();
+                    });
+                    wrapper.appendChild(footer);
+                }
+            }
+
+            renderBatch();
+            container.appendChild(wrapper);
+        }
+
+        function buildSessionSummary(events) {
+            const counts = {};
+            let firstTs = null;
+            let lastTs = null;
+            for (const e of events) {
+                const t = e && e.type ? e.type : 'unknown';
+                counts[t] = (counts[t] || 0) + 1;
+                if (e && e.timestamp) {
+                    if (!firstTs) firstTs = e.timestamp;
+                    lastTs = e.timestamp;
+                }
+            }
+            const importantTypes = ['session_start', 'session_end', 'tool_call', 'tool_result', 'completion_tag', 'file_created', 'stderr', 'error', 'agent_end'];
+            const badges = importantTypes
+                .filter(t => counts[t])
+                .map(t => `<span class="timeline-badge type-${t}">${escapeHtml(t)}: ${counts[t]}</span>`)
+                .join('');
+            const durationStr = firstTs && lastTs && firstTs !== lastTs
+                ? ` · duration ${formatDuration(firstTs, lastTs)}`
+                : '';
+            return {
+                html: `
+                    <strong>${events.length.toLocaleString()} events</strong>${durationStr}
+                    <div class="timeline-badges">${badges}</div>
+                `
+            };
+        }
+
+        function formatDuration(start, end) {
+            try {
+                const ms = new Date(end).getTime() - new Date(start).getTime();
+                if (isNaN(ms) || ms < 0) return '';
+                const s = Math.floor(ms / 1000);
+                if (s < 60) return s + 's';
+                const m = Math.floor(s / 60);
+                if (m < 60) return m + 'm ' + (s % 60) + 's';
+                const h = Math.floor(m / 60);
+                return h + 'h ' + (m % 60) + 'm';
+            } catch (_) { return ''; }
+        }
+
+        function createTimelineRow(event, index) {
+            const row = document.createElement('div');
+            const type = (event && event.type) || 'unknown';
+            row.className = 'timeline-row type-' + type;
+            row.dataset.index = String(index);
+
+            const ts = event && event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
+            const preview = oneLinePreview(event);
+
+            row.innerHTML = `
+                <span class="timeline-row-toggle">▸</span>
+                <span class="timeline-row-type">${escapeHtml(type)}</span>
+                <span class="timeline-row-ts">${escapeHtml(ts)}</span>
+                <span class="timeline-row-preview">${escapeHtml(preview)}</span>
+            `;
+
+            row.addEventListener('click', () => toggleTimelineRow(row, event));
+            return row;
+        }
+
+        function oneLinePreview(event) {
+            if (!event) return '';
+            // Pick the most useful single-line description per event type
+            if (event.message) return String(event.message).split('\n')[0].slice(0, 200);
+            if (event.toolName) return event.toolName + (event.args && event.args.path ? ' · ' + event.args.path : '');
+            if (event.filePath) return event.filePath;
+            if (event.prompt) return String(event.prompt).split('\n')[0].slice(0, 200);
+            if (event.summary) return String(event.summary).split('\n')[0].slice(0, 200);
+            if (event.text) return String(event.text).split('\n')[0].slice(0, 200);
+            if (event.content) return String(event.content).split('\n')[0].slice(0, 200);
+            if (event.error) return String(event.error).split('\n')[0].slice(0, 200);
+            if (event.exitCode !== undefined) return 'exit code: ' + event.exitCode;
+            return '';
+        }
+
+        function toggleTimelineRow(row, event) {
+            const existing = row.nextElementSibling;
+            if (existing && existing.classList.contains('timeline-row-detail')) {
+                existing.remove();
+                row.querySelector('.timeline-row-toggle').textContent = '▸';
+                return;
+            }
+            const detail = document.createElement('pre');
+            detail.className = 'timeline-row-detail';
+            detail.textContent = JSON.stringify(event, null, 2);
+            row.after(detail);
+            row.querySelector('.timeline-row-toggle').textContent = '▾';
         }
 
         function createMessageElement(role, content) {

@@ -6,6 +6,56 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const treeKill = require('tree-kill');
+
+/* ═══════════════════════════════════════════════════════════
+   Cross-platform helpers
+   ═══════════════════════════════════════════════════════════
+   BatonBot is a single codebase that runs on macOS, Linux, and
+   Windows. Platform-specific differences are isolated here so
+   the rest of the code stays OS-agnostic.
+   ─────────────────────────────────────────────────────────── */
+const IS_WINDOWS = process.platform === 'win32';
+
+/**
+ * spawnCompat — child_process.spawn wrapper that works on Windows.
+ *
+ * On Windows, agent CLIs like `cline`, `aider`, `npx`, and (often) `git`
+ * are installed as `.cmd` / `.bat` shims. Node's spawn cannot execute
+ * those directly — it must go through cmd.exe. Setting `shell: true`
+ * on Windows fixes this transparently. On macOS/Linux we keep the
+ * default (no shell) to avoid shell injection / arg-escaping issues.
+ */
+function spawnCompat(command, args, opts = {}) {
+  return spawn(command, args, {
+    ...opts,
+    shell: IS_WINDOWS ? true : (opts.shell ?? false),
+    windowsHide: true,
+  });
+}
+
+/**
+ * killProcessTree — Reliably terminate a child process and all of its
+ * descendants on any platform.
+ *
+ * On POSIX, `child.kill('SIGTERM')` only signals the immediate child.
+ * When we spawn through a shell (cmd.exe / sh), the agent CLI is a
+ * grandchild and survives. On Windows there are no real POSIX signals
+ * at all, so SIGTERM is essentially "kill -9 the parent only".
+ *
+ * tree-kill walks the OS process tree and terminates every descendant
+ * (using taskkill /T /F on Windows, kill on POSIX).
+ */
+function killProcessTree(child, signal = 'SIGTERM') {
+  if (!child || child.killed || !child.pid) return;
+  try {
+    treeKill(child.pid, signal);
+  } catch (err) {
+    // Last-ditch fallback so we never leave a child running.
+    try { child.kill(signal); } catch (_) { /* swallow */ }
+  }
+}
+
 const {
   executeCodingAgent,
   buildSpawnedTasks,
@@ -37,6 +87,7 @@ if (!fs.existsSync(logsDir)) {
  */
 const executionState = {
   running: false,
+  pauseRequested: false, // When true, orchestrator finishes current task then halts without failing remaining pending tasks
   childProcesses: [],    // Array of { projectId, taskIndex, process }
   abortController: null  // AbortController for cancellation signaling
 };
@@ -114,12 +165,19 @@ const clineSessionCache = new Map();
 
 /**
  * Broadcast an event to all SSE subscribers for a given project.
+ *
+ * streamSubscribers is a Map<projectId, Set<Response>> so multiple browser
+ * tabs / panels (e.g. the board's task-state listener AND the terminal's
+ * Live Output panel) can subscribe to the same project's event stream
+ * without overwriting each other.
  */
 function broadcastEvent(projectId, event) {
-  if (streamSubscribers.has(projectId)) {
-    const res = streamSubscribers.get(projectId);
+  const subs = streamSubscribers.get(projectId);
+  if (!subs || subs.size === 0) return;
+  const payload = 'data: ' + JSON.stringify(event) + '\n\n';
+  for (const res of subs) {
     if (!res.writableEnded) {
-      res.write('data: ' + JSON.stringify(event) + '\n\n');
+      try { res.write(payload); } catch (_) { /* swallow — subscriber will be cleaned up on close */ }
     }
   }
 }
@@ -665,7 +723,7 @@ function ensureGitInitialized(workingDir) {
     }
 
     console.log(`[GIT] Initializing git repository in ${workingDir}...`);
-    const initProcess = spawn('git', ['init'], { cwd: workingDir });
+    const initProcess = spawnCompat('git', ['init'], { cwd: workingDir });
     
     initProcess.on('exit', (code) => {
       if (code === 0 || code === null) {
@@ -1129,7 +1187,7 @@ const AGENT_REGISTRY = {
             model: config.model || 'claude-sonnet-4-20250514',
             apiKey: config.apiKey || ''
           };
-        } else if (!config.apiBase || apiBaseLower.includes('localhost')) {
+        } else if (!config.apiBase || apiBaseLower.includes('localhost') || apiBaseLower.includes('127.0.0.1')) {
           // ── LM STUDIO PROVIDER (local) ──
           providerType = 'lmstudio';
           providerSettings = {
@@ -1184,11 +1242,11 @@ const AGENT_REGISTRY = {
         const apiBaseLower = (config.apiBase || '').toLowerCase();
         if (apiBaseLower.includes('anthropic.com')) {
           env.ANTHROPIC_API_KEY = config.apiKey || '';
-        } else if (!apiBaseLower.includes('localhost')) {
+        } else if (!apiBaseLower.includes('localhost') && !apiBaseLower.includes('127.0.0.1')) {
           // OpenAI-compatible providers (Grok, OpenAI, etc.) need OPENAI_API_KEY
           env.OPENAI_API_KEY = config.apiKey || '';
         }
-        // LM Studio (localhost) doesn't need an API key
+        // LM Studio (localhost / 127.0.0.1) doesn't need an API key
         return env;
       }
       return {
@@ -1336,8 +1394,9 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
     });
   }
 
-  // Use spawn with args array (no shell) to avoid shell injection / escaping issues
-  const child = spawn(cmdObj.command, cmdObj.args, { cwd, env });
+  // Use spawnCompat so .cmd/.bat shims (cline, aider, git) work on Windows.
+  // On macOS/Linux this behaves identically to plain spawn (no shell).
+  const child = spawnCompat(cmdObj.command, cmdObj.args, { cwd, env });
   registerChildProcess(projectId, taskIndex, child);
 
   // Register active session for single-session enforcement
@@ -1355,22 +1414,46 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
   let hasCompletionResult = false;
 
   child.stdout.on('data', (data) => {
-    stdout += data.toString();
-    
-    // Check for completion_result events to track session lifecycle
     const text = data.toString();
+    stdout += text;
+
+    // Check for completion_result events to track session lifecycle
     if (text.includes('completion_result') || text.includes('completion_tag')) {
       hasCompletionResult = true;
     }
-    
+
+    // Broadcast stdout chunk to live-output SSE subscribers
+    try {
+      broadcastEvent(projectId, {
+        type: 'stdout',
+        taskIndex,
+        sessionId,
+        text,
+        timestamp: new Date().toISOString()
+      });
+    } catch (_) { /* never block child output on SSE failures */ }
+
     agent.handleOutput(data, { taskIndex, sessionId });
   });
 
   child.stderr.on('data', (data) => {
-    stderr += data.toString();
-    console.error(`[${agent.name.toUpperCase()}][task-${taskIndex}][stderr]: ${data.toString().trim()}`);
+    const text = data.toString();
+    stderr += text;
+    console.error(`[${agent.name.toUpperCase()}][task-${taskIndex}][stderr]: ${text.trim()}`);
+
+    // Broadcast stderr chunk to live-output SSE subscribers
+    try {
+      broadcastEvent(projectId, {
+        type: 'stderr',
+        taskIndex,
+        sessionId,
+        text,
+        timestamp: new Date().toISOString()
+      });
+    } catch (_) { /* never block child output on SSE failures */ }
+
     if (agentName === 'cline') {
-      appendToClineLog(sessionId, { type: 'stderr', timestamp: new Date().toISOString(), text: data.toString().trim() });
+      appendToClineLog(sessionId, { type: 'stderr', timestamp: new Date().toISOString(), text: text.trim() });
     }
   });
 
@@ -1600,12 +1683,12 @@ app.post('/api/project/:id/tasks/cancel', (req, res) => {
 
   // Send SIGTERM to all tracked child processes for this project
   const terminated = [];
-  executionState.childProcesses.forEach(({ process, taskIndex }) => {
-    if (!process.killed && (process.pid)) {
+  executionState.childProcesses.forEach(({ process: child, taskIndex }) => {
+    if (!child.killed && child.pid) {
       try {
-        process.kill('SIGTERM');
+        killProcessTree(child, 'SIGTERM');
         terminated.push(taskIndex);
-        console.log(`[CANCEL] Sent SIGTERM to task ${taskIndex} (PID: ${process.pid})`);
+        console.log(`[CANCEL] Killed process tree for task ${taskIndex} (PID: ${child.pid})`);
       } catch (err) {
         console.warn(`[CANCEL] Failed to kill task ${taskIndex}:`, err.message);
       }
@@ -1616,8 +1699,8 @@ app.post('/api/project/:id/tasks/cancel', (req, res) => {
   for (const [taskIdx, session] of activeSessions) {
     if (session.projectId === projectId && session.child) {
       try {
-        session.child.kill('SIGTERM');
-        console.log(`[CANCEL] Sent SIGTERM to active session for task ${taskIdx} (sessionId: ${session.sessionId})`);
+        killProcessTree(session.child, 'SIGTERM');
+        console.log(`[CANCEL] Killed process tree for active session task ${taskIdx} (sessionId: ${session.sessionId})`);
       } catch (err) {
         console.warn(`[CANCEL] Failed to kill active session for task ${taskIdx}:`, err.message);
       }
@@ -1642,17 +1725,51 @@ app.post('/api/project/:id/tasks/cancel', (req, res) => {
     cp => cp.projectId !== projectId
   );
 
-  // Close SSE stream for this project
-  if (streamSubscribers.has(projectId)) {
-    const subscriberRes = streamSubscribers.get(projectId);
-    if (!subscriberRes.writableEnded) {
-      subscriberRes.write('data: ' + JSON.stringify({ type: 'cancelled', timestamp: new Date().toISOString() }) + '\n\n');
-      subscriberRes.end();
+  // Notify all SSE subscribers and close their streams for this project
+  const cancelSubs = streamSubscribers.get(projectId);
+  if (cancelSubs && cancelSubs.size > 0) {
+    const cancelPayload = 'data: ' + JSON.stringify({ type: 'cancelled', timestamp: new Date().toISOString() }) + '\n\n';
+    for (const subscriberRes of cancelSubs) {
+      try {
+        if (!subscriberRes.writableEnded) {
+          subscriberRes.write(cancelPayload);
+          subscriberRes.end();
+        }
+      } catch (_) { /* swallow */ }
     }
     streamSubscribers.delete(projectId);
   }
 
   res.json({ success: true, message: 'Execution cancelled', terminatedTasks: terminated });
+});
+
+/**
+ * POST /api/project/:id/tasks/pause
+ * Gracefully halt orchestration AFTER the currently running task finishes.
+ * Unlike /cancel, this does NOT SIGTERM the running child — it lets the agent
+ * finish naturally and prevents any subsequent tasks in the queue from starting.
+ * Remaining selected tasks stay in 'pending' state so the user can resume by
+ * pressing Play again (which re-issues /orchestrate with the remaining indices).
+ */
+app.post('/api/project/:id/tasks/pause', (req, res) => {
+  const { id: projectId } = req.params;
+
+  console.log(`[PAUSE] POST /api/project/${projectId}/tasks/pause`);
+
+  if (!executionState.running) {
+    return res.json({ success: false, message: 'No active execution to pause' });
+  }
+
+  executionState.pauseRequested = true;
+
+  // Broadcast acknowledgement so the UI can flip Pause -> Play immediately,
+  // even though actual halt happens after the current task settles.
+  broadcastEvent(projectId, {
+    type: 'pause_requested',
+    timestamp: new Date().toISOString()
+  });
+
+  res.json({ success: true, message: 'Pause requested. Orchestrator will stop after the current task completes.' });
 });
 
 /**
@@ -1670,12 +1787,19 @@ app.get('/api/project/:id/tasks/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  // Store subscriber
-  streamSubscribers.set(projectId, res);
+  // Store subscriber (multiple subscribers per project supported via Set)
+  if (!streamSubscribers.has(projectId)) {
+    streamSubscribers.set(projectId, new Set());
+  }
+  streamSubscribers.get(projectId).add(res);
 
   res.on('close', () => {
     console.log(`[STREAM] GET /api/project/${projectId}/tasks/stream | Subscriber disconnected`);
-    streamSubscribers.delete(projectId);
+    const subs = streamSubscribers.get(projectId);
+    if (subs) {
+      subs.delete(res);
+      if (subs.size === 0) streamSubscribers.delete(projectId);
+    }
   });
 
   // Send initial connection event
@@ -1840,7 +1964,7 @@ app.post('/api/cline/headless', async (req, res) => {
     headlessEnv.MODEL = headlessConfig.model || '';
   }
 
-  const child = spawn(cmdObj.command, cmdObj.args, {
+  const child = spawnCompat(cmdObj.command, cmdObj.args, {
     cwd,
     env: headlessEnv,
   });
@@ -2145,11 +2269,12 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
     tasksToRun.push({ index: idx, prompt: project.tasks[idx].prompt });
   }
 
-  // Mark tasks as in_progress
-  for (const { index } of tasksToRun) {
-    project.tasks[index].state = 'in_progress';
-  }
-  saveState(state);
+  // NOTE: Do NOT bulk-mark all selected tasks as 'in_progress' here.
+  // The orchestrator runs tasks sequentially via runNextTask(), which flips
+  // the current task to 'in_progress' just before invoking the agent and to
+  // 'done'/'failed' on completion. Marking everything up front would cause
+  // every queued card on the board to display the amber RUNNING badge even
+  // though only one task is actually executing at a time.
 
   // Set execution state for Phase 3 controls
   executionState.running = true;
@@ -2235,6 +2360,39 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
       // Reset queue state
       taskQueue.isProcessing = false;
       taskQueue.currentTaskIndex = null;
+    }
+
+    // ── Pause check: gracefully halt between tasks without failing remaining pending tasks ──
+    if (executionState.pauseRequested) {
+      console.log(`[ORCHESTRATION] Pause requested — stopping after task ${taskIndex}. Remaining tasks left pending.`);
+      executionState.running = false;
+      executionState.pauseRequested = false;
+
+      // Revert any remaining in_progress tasks (defensive) and ensure remaining selected tasks stay pending
+      const pauseState = getState();
+      const pauseProject = pauseState.projects.find(p => p.id === projectId);
+      if (pauseProject) {
+        const currentIdx = taskIndices.indexOf(taskIndex);
+        const remainingIndices = taskIndices.slice(currentIdx + 1);
+        for (const remIdx of remainingIndices) {
+          if (pauseProject.tasks[remIdx] && pauseProject.tasks[remIdx].state === 'in_progress') {
+            pauseProject.tasks[remIdx].state = 'pending';
+          }
+        }
+        saveState(pauseState);
+      }
+
+      broadcastEvent(projectId, {
+        type: 'orchestration_paused',
+        completed: completedCount,
+        failed: failedCount,
+        lastTaskIndex: taskIndex,
+        timestamp: new Date().toISOString()
+      });
+
+      taskQueue.isProcessing = false;
+      taskQueue.currentTaskIndex = null;
+      return;
     }
 
     // Check if there are more tasks to run (only proceed if current task succeeded)
@@ -2483,107 +2641,83 @@ app.post('/api/chat', async (req, res) => {
 ## What to do
 1. Read the user's input and identify each distinct step (numbered lists, bullet points, headings, paragraphs, or separate code blocks).
 2. Wrap each existing step into a <<TASK_N>> block using incrementing numbers (1, 2, 3...).
-3. Preserve the original text and intent of each step exactly — do not rewrite, summarize, or invent new content.
-4. Include the "CODE BLOCK RULES FOR THIS TASK" section inside every block (required for downstream parsing).
+3. Preserve the original text of each step EXACTLY as written — do not rewrite, summarize, reformat, or invent any new content. The block contents must be ONLY the user's literal step text.
 
 ## What NOT to do
 - Do NOT generate new steps or requirements that the user did not provide.
-- Do NOT rewrite or rephrase the user's steps — preserve them verbatim.
+- Do NOT rewrite, rephrase, reformat, or add structure to the user's steps — preserve them verbatim.
 - Do NOT merge separate steps into one block.
-- Do NOT add extra commentary, introductions, or conclusions outside the task blocks.
+- Do NOT add commentary, headings, "Objective:" lines, "CODE BLOCK RULES" sections, or any other text the user did not write.
+- Do NOT add introductions or conclusions outside the task blocks.
 
 ## Output format
 
-Your entire response must consist ONLY of <<TASK_N>> blocks, nothing else.
+Your entire response must consist ONLY of <<TASK_N>> blocks, nothing else. Each block contains ONLY the user's literal step text — nothing added.
 
 <<TASK_1>>
-Step 1: [Original step title from user]
-
-Objective: [Original objective or description from user]
-
-CODE BLOCK RULES FOR THIS TASK:
-- NEVER include "(see below for file content)" inside fenced code blocks
-- Code blocks must contain only valid, compilable code
-- Mention file paths outside code fences, not inside
-- No non-code annotations or placeholders inside code fences
-
-[The user's original step content preserved exactly as written]
+[The user's first step, preserved exactly as written — nothing more, nothing less]
 <</TASK_1>>
 
 <<TASK_2>>
-Step 2: [Original step title from user]
-
-Objective: [Original objective or description from user]
-
-CODE BLOCK RULES FOR THIS TASK:
-- NEVER include "(see below for file content)" inside fenced code blocks
-- Code blocks must contain only valid, compilable code
-- Mention file paths outside code fences, not inside
-- No non-code annotations or placeholders inside code fences
-
-[The user's original step content preserved exactly as written]
+[The user's second step, preserved exactly as written — nothing more, nothing less]
 <</TASK_2>>
 
 ## Critical rules
 1. Each <<TASK_N>> block MUST be closed with the matching <</TASK_N>> tag (e.g., TASK_1 closes with <</TASK_1>>, TASK_2 closes with <</TASK_2>>).
-2. The "CODE BLOCK RULES FOR THIS TASK" section MUST appear inside EVERY task block.
-3. Code blocks inside tasks must contain ONLY valid code — no file-reference annotations.
-4. Preserve the user's original content verbatim — your only job is to wrap, not to rewrite.`;
+2. Block contents MUST be ONLY the user's original step text — do not add any other lines, headers, or annotations.
+3. Preserve the user's original content verbatim — your only job is to wrap, not to rewrite.`;
 
-  const systemPromptTelegram = `You are a task formatter that wraps existing implementation steps into a structured format AND inserts Telegram signal-chain messages between each step. The user will provide steps that are already written — your job is to wrap each step into a <<TASK_N>> block and add Telegram tasks, NOT to rewrite, expand, or generate new implementation steps.
+
+  const systemPromptTelegram = `You are a task formatter that wraps existing implementation steps into a structured format AND inserts Telegram signal-chain messages between each step. The user will provide steps that are already written — your job is to wrap each step into a <<TASK_N>> block (preserving the user's text verbatim) and add Telegram message tasks, NOT to rewrite, expand, or generate new implementation steps.
 
 ## What to do
 1. Read the user's input and identify each distinct step (numbered lists, bullet points, headings, paragraphs, or separate code blocks).
 2. Count the total number of user steps (call this N).
-3. Produce exactly (2N + 1) task blocks:
+3. Produce exactly (2N + 2) task blocks in this order:
    - TASK_1: A Telegram "Start" message announcing the pipeline has begun
    - Then for each user step S (1 through N):
-     a. Wrap the user's original step S into a <<TASK>> block (preserve verbatim)
-     b. Insert a Telegram "Step S of N complete" block with a brief one-sentence summary of what that step accomplished
-4. Include the "CODE BLOCK RULES FOR THIS TASK" section inside every block (required for downstream parsing).
+     a. A <<TASK>> block containing ONLY the user's original step S text, preserved verbatim
+     b. A Telegram "✅ Step S of N complete" block with a brief one-sentence summary of what that step accomplished
+   - Final block: A Telegram "🎉 Pipeline complete" message marking the end of the pipeline
+4. Number the blocks sequentially: TASK_1, TASK_2, TASK_3, … TASK_{2N+2}.
 
 ## Telegram task format
 
-Each Telegram task must contain a "Telegram Message:" line with the message text. Example:
+Each Telegram task must contain ONLY a single "Telegram Message:" line with the message text. Example:
 
 <<TASK_1>>
-Telegram Message: 🚀 Starting pipeline with \${N} implementation steps.
-
-CODE BLOCK RULES FOR THIS TASK:
-- NEVER include "(see below for file content)" inside fenced code blocks
-- Code blocks must contain only valid, compilable code
-- Mention file paths outside code fences, not inside
-- No non-code annotations or placeholders inside code fences
+Telegram Message: 🚀 Starting pipeline with N implementation steps.
 <</TASK_1>>
 
 <<TASK_3>>
-Telegram Message: ✅ Step 1 of \${N} complete — [brief one-sentence summary of what step 1 accomplished]
-
-CODE BLOCK RULES FOR THIS TASK:
-- NEVER include "(see below for file content)" inside fenced code blocks
-- Code blocks must contain only valid, compilable code
-- Mention file paths outside code fences, not inside
-- No non-code annotations or placeholders inside code fences
+Telegram Message: ✅ Step 1 of N complete — [brief one-sentence summary of what step 1 accomplished]
 <</TASK_3>>
+
+User-step blocks contain ONLY the user's literal step text — nothing added:
+
+<<TASK_2>>
+[The user's first step, preserved exactly as written — nothing more, nothing less]
+<</TASK_2>>
 
 ## What NOT to do
 - Do NOT generate new implementation steps that the user did not provide.
-- Do NOT rewrite or rephrase the user's implementation steps — preserve them verbatim.
+- Do NOT rewrite, rephrase, reformat, or add structure to the user's implementation steps — preserve them verbatim.
 - Do NOT merge separate steps into one block.
-- Do NOT add extra commentary, introductions, or conclusions outside the task blocks.
+- Do NOT add commentary, headings, "Objective:" lines, "CODE BLOCK RULES" sections, or any text the user did not write inside the user-step blocks.
+- Do NOT add introductions or conclusions outside the task blocks.
 - Telegram messages should be brief (one line) with a short summary.
 
 ## Output format
 
 Your entire response must consist ONLY of <<TASK_N>> blocks, nothing else.
-Total blocks = 2 × (number of user steps) + 1 (the start message).
+Total blocks = 2 × (number of user steps) + 2 (the start message and the final completion message).
 
 ## Critical rules
 1. Each <<TASK_N>> block MUST be closed with the matching <</TASK_N>> tag (e.g., TASK_1 closes with <</TASK_1>>, TASK_2 closes with <</TASK_2>>).
-2. The "CODE BLOCK RULES FOR THIS TASK" section MUST appear inside EVERY task block.
-3. Code blocks inside tasks must contain ONLY valid code — no file-reference annotations.
-4. Preserve the user's original implementation step content verbatim — only the Telegram messages are new content.
-5. Every Telegram task must include a "Telegram Message:" line.`;
+2. User-step blocks contain ONLY the user's literal step text — no added headers, rules, or annotations.
+3. Every Telegram task must include a "Telegram Message:" line and nothing else.
+4. Preserve the user's original implementation step content verbatim — only the Telegram messages are new content.`;
+
 
   const systemPrompt = addTelegram ? systemPromptTelegram : systemPromptStandard;
 
