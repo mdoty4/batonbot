@@ -21,15 +21,29 @@ const IS_WINDOWS = process.platform === 'win32';
  * spawnCompat — child_process.spawn wrapper that works on Windows.
  *
  * On Windows, agent CLIs like `cline`, `aider`, `npx`, and (often) `git`
- * are installed as `.cmd` / `.bat` shims. Node's spawn cannot execute
- * those directly — it must go through cmd.exe. Setting `shell: true`
- * on Windows fixes this transparently. On macOS/Linux we keep the
- * default (no shell) to avoid shell injection / arg-escaping issues.
+ * are installed as `.cmd` / `.bat` shims. Node's spawn cannot execute a
+ * bare `cline` — it must invoke `cline.cmd` directly. We DO NOT use
+ * `shell: true` because cmd.exe re-tokenizes the assembled command line,
+ * which splits multi-word prompt arguments on whitespace and causes
+ * Cline to fail with `Unknown command or extra arguments`.
+ *
+ * Instead, on Windows we resolve bare command names to their `.cmd`
+ * shim and keep `shell: false` so the args array is passed verbatim.
+ * On macOS/Linux we pass through unchanged.
  */
 function spawnCompat(command, args, opts = {}) {
-  return spawn(command, args, {
+  let cmd = command;
+  if (
+    IS_WINDOWS &&
+    !path.extname(command) &&
+    !command.includes('/') &&
+    !command.includes('\\')
+  ) {
+    cmd = `${command}.cmd`;
+  }
+  return spawn(cmd, args, {
     ...opts,
-    shell: IS_WINDOWS ? true : (opts.shell ?? false),
+    shell: false,
     windowsHide: true,
   });
 }
@@ -1179,12 +1193,19 @@ const AGENT_REGISTRY = {
         let providerType = 'openai';
         let providerSettings = {};
 
+        // Model must come from the global/project config — no silent fallback.
+        // If it's missing we throw a clear error so the task is marked failed
+        // and the user knows to set the model in Settings.
+        if (!config.model) {
+          throw new Error('Cline model is not configured. Set it in Settings → LLM Configuration (e.g. "claude-opus-4-7").');
+        }
+
         if (apiBaseLower.includes('anthropic.com')) {
           // ── ANTHROPIC PROVIDER ──
           providerType = 'anthropic';
           providerSettings = {
             provider: 'anthropic',
-            model: config.model || 'claude-sonnet-4-20250514',
+            model: config.model,
             apiKey: config.apiKey || ''
           };
         } else if (!config.apiBase || apiBaseLower.includes('localhost') || apiBaseLower.includes('127.0.0.1')) {
@@ -1192,14 +1213,14 @@ const AGENT_REGISTRY = {
           providerType = 'lmstudio';
           providerSettings = {
             provider: 'lmstudio',
-            model: config.model || 'qwen/qwen3.6-27b'
+            model: config.model
           };
         } else {
           // ── OPENAI-COMPATIBLE PROVIDER (Grok, OpenAI, etc.) ──
           providerType = 'openai';
           providerSettings = {
             provider: 'openai',
-            model: config.model || 'gpt-4o',
+            model: config.model,
             baseUrl: config.apiBase || '',
             apiKey: config.apiKey || ''
           };
@@ -1877,24 +1898,29 @@ app.post('/api/cline/headless', async (req, res) => {
     let providerType = 'openai';
     let providerSettings = {};
 
+    // Model must come from the global/project config — no silent fallback.
+    if (!headlessConfig.model) {
+      return res.status(400).json({ error: 'Cline model is not configured. Set it in Settings → LLM Configuration (e.g. "claude-opus-4-7").' });
+    }
+
     if (apiBaseLower.includes('anthropic.com')) {
       providerType = 'anthropic';
       providerSettings = {
         provider: 'anthropic',
-        model: headlessConfig.model || 'claude-sonnet-4-20250514',
+        model: headlessConfig.model,
         apiKey: headlessConfig.apiKey || ''
       };
     } else if (!headlessConfig.apiBase || apiBaseLower.includes('localhost')) {
       providerType = 'lmstudio';
       providerSettings = {
         provider: 'lmstudio',
-        model: headlessConfig.model || 'qwen/qwen3.6-27b'
+        model: headlessConfig.model
       };
     } else {
       providerType = 'openai';
       providerSettings = {
         provider: 'openai',
-        model: headlessConfig.model || 'gpt-4o',
+        model: headlessConfig.model,
         baseUrl: headlessConfig.apiBase || '',
         apiKey: headlessConfig.apiKey || ''
       };
@@ -2314,28 +2340,50 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
         timestamp: new Date().toISOString()
       });
 
-      // Use the unified agent trigger (this spawns a child process)
-      await triggerAgentSingle(projectId, taskIndex);
+      // Use the unified agent trigger (this spawns a child process).
+      // triggerAgentSingle RESOLVES (does not throw) with { success: false, error }
+      // on child-process failure. So we must inspect the return value here —
+      // otherwise failed Cline tasks would still increment completedCount and
+      // the UI would falsely report "X succeeded, 0 failed".
+      const taskResult = await triggerAgentSingle(projectId, taskIndex);
 
       // Check if cancelled during execution
       if (!executionState.running) {
         return;
       }
 
-      // Task completed successfully (triggerAgentSingle resolves after child.on('close') fires)
-      completedCount++;
+      if (taskResult && taskResult.success === false) {
+        // Child process exited non-zero, or Cline never emitted completion_result,
+        // or executeAgentTask reported an error. Count as a failed task.
+        failedCount++;
+        const errMsg = taskResult.error || 'Task reported failure';
+        console.error(`[ORCHESTRATION] Task ${taskIndex} failed: ${errMsg}`);
 
-      // Immediately update task state to 'done' so polling reflects the correct state
-      const doneState = getState();
-      const doneProject = doneState.projects.find(p => p.id === projectId);
-      if (doneProject && doneProject.tasks[taskIndex]) {
-        doneProject.tasks[taskIndex].state = 'done';
-        doneProject.tasks[taskIndex].completedAt = new Date().toISOString();
-        saveState(doneState);
+        const failState = getState();
+        const failProject = failState.projects.find(p => p.id === projectId);
+        if (failProject && failProject.tasks[taskIndex]) {
+          failProject.tasks[taskIndex].state = 'failed';
+          failProject.tasks[taskIndex].completedAt = new Date().toISOString();
+          saveState(failState);
+        }
+
+        broadcastEvent(projectId, { type: 'task_failed', taskIndex, error: errMsg, timestamp: new Date().toISOString() });
+      } else {
+        // Task completed successfully (triggerAgentSingle resolves after child.on('close') fires)
+        completedCount++;
+
+        // Immediately update task state to 'done' so polling reflects the correct state
+        const doneState = getState();
+        const doneProject = doneState.projects.find(p => p.id === projectId);
+        if (doneProject && doneProject.tasks[taskIndex]) {
+          doneProject.tasks[taskIndex].state = 'done';
+          doneProject.tasks[taskIndex].completedAt = new Date().toISOString();
+          saveState(doneState);
+        }
+
+        // Broadcast task done event via SSE
+        broadcastEvent(projectId, { type: 'task_done', taskIndex, timestamp: new Date().toISOString() });
       }
-
-      // Broadcast task done event via SSE
-      broadcastEvent(projectId, { type: 'task_done', taskIndex, timestamp: new Date().toISOString() });
     } catch (err) {
       // Check if cancelled during execution
       if (!executionState.running) {
