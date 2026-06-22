@@ -20,30 +20,57 @@ const IS_WINDOWS = process.platform === 'win32';
 /**
  * spawnCompat — child_process.spawn wrapper that works on Windows.
  *
- * On Windows, agent CLIs like `cline`, `aider`, `npx`, and (often) `git`
- * are installed as `.cmd` / `.bat` shims. Node's spawn cannot execute a
- * bare `cline` — it must invoke `cline.cmd` directly. We DO NOT use
- * `shell: true` because cmd.exe re-tokenizes the assembled command line,
- * which splits multi-word prompt arguments on whitespace and causes
- * Cline to fail with `Unknown command or extra arguments`.
+ * On Windows, agent CLIs (`cline`, `aider`, `npx`, sometimes `git`) are
+ * installed as `.cmd` / `.bat` shims. There are two booby-traps here:
  *
- * Instead, on Windows we resolve bare command names to their `.cmd`
- * shim and keep `shell: false` so the args array is passed verbatim.
+ *   1. Bare `cline` won't resolve — we need `cline.cmd`.
+ *   2. Since Node 18.20.2 / 20.12.2 / 21.7.2, Node refuses to spawn
+ *      `.cmd` / `.bat` files directly with `shell: false` and throws
+ *      `spawn EINVAL` (CVE-2024-27980 mitigation).
+ *   3. Using `shell: true` re-routes through `cmd.exe`, which then
+ *      re-tokenizes the joined command line and splits multi-word
+ *      prompt arguments on whitespace → Cline errors with
+ *      "Unknown command or extra arguments".
+ *
+ * The robust path is to invoke `cmd.exe /d /s /c <shim> <args>` ourselves
+ * with `windowsVerbatimArguments: true` so Node doesn't re-quote, and we
+ * manually wrap each arg in double quotes if it contains whitespace or
+ * shell metacharacters. That way the prompt reaches Cline as ONE token.
+ *
  * On macOS/Linux we pass through unchanged.
  */
-function spawnCompat(command, args, opts = {}) {
-  let cmd = command;
-  if (
-    IS_WINDOWS &&
-    !path.extname(command) &&
-    !command.includes('/') &&
-    !command.includes('\\')
-  ) {
-    cmd = `${command}.cmd`;
+function quoteArgForWindowsCmd(arg) {
+  const s = String(arg);
+  if (s === '' || /[\s"&<>^|()%!]/.test(s)) {
+    // Escape any embedded double-quotes (Microsoft's standard rules), then
+    // wrap the whole thing in double quotes so cmd.exe sees one token.
+    const escaped = s
+      .replace(/(\\*)"/g, '$1$1\\"')
+      .replace(/(\\+)$/, '$1$1');
+    return `"${escaped}"`;
   }
-  return spawn(cmd, args, {
+  return s;
+}
+
+function spawnCompat(command, args, opts = {}) {
+  if (IS_WINDOWS) {
+    const isPath = command.includes('/') || command.includes('\\');
+    const shimName = path.extname(command) || isPath ? command : `${command}.cmd`;
+    const quotedArgs = args.map(quoteArgForWindowsCmd);
+    return spawn(
+      'cmd.exe',
+      ['/d', '/s', '/c', shimName, ...quotedArgs],
+      {
+        ...opts,
+        shell: false,
+        windowsVerbatimArguments: true,
+        windowsHide: true,
+      }
+    );
+  }
+  return spawn(command, args, {
     ...opts,
-    shell: false,
+    shell: opts.shell ?? false,
     windowsHide: true,
   });
 }
