@@ -23,3 +23,6 @@ Thumbs.db
 
 # Build artifacts
 coverage/
+
+# Private strategy notes (not for public repo)
+docs/internal/

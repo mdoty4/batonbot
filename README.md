@@ -77,7 +77,7 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
 - [Development](#development)
-- [Future Roadmap](#future-roadmap)
+- [Roadmap](#roadmap)
 
 ---
 
@@ -405,12 +405,9 @@ Example: `testbench_cline_task_0_2026-04-27T02-22-13.json`
 
 ---
 
-## 🎯 Future Roadmap
+## 🗺️ Roadmap
 
-- [ ] **Enterprise Gateway**: Native support for OpenAI, Anthropic, and Azure API keys.
-- [ ] **Template Library**: Shareable "Golden Pipelines" for common development tasks.
-- [ ] **Conditional Logic**: Branching pipelines based on the output of a previous step.
-- [ ] **MCP Server**: Expose BatonBot capabilities as MCP tools for AI agents.
+See [ROADMAP.md](./ROADMAP.md) for what's coming — currently shipping v3.2 (portable bundle) and v3.3 (generic ingress).
 
 ---
 
