@@ -1761,8 +1761,14 @@ async function callLLMForAgent(messages, config = {}) {
         model: model || 'claude-sonnet-4-20250514',
         messages: anthropicMessages,
         max_tokens: maxTokens || 16384,
-        temperature: temperature ?? 0,
       };
+      // Only include temperature if explicitly set. Newer Anthropic models
+      // (e.g. claude-opus-4-7) deprecated this parameter and return HTTP 400
+      // if it's present in the body.
+      if (temperature !== undefined && temperature !== null) {
+        anthropicBody.temperature = temperature;
+      }
+
 
       if (systemMsg) {
         anthropicBody.system = systemMsg.content;
@@ -1814,8 +1820,12 @@ async function callLLMForAgent(messages, config = {}) {
       model: model || 'gpt-4o',
       messages,
       stream: false,
-      temperature: temperature ?? 0,
     };
+    // Only include temperature if explicitly set. Some newer models reject it.
+    if (temperature !== undefined && temperature !== null) {
+      body.temperature = temperature;
+    }
+
 
     if (tools && tools.length > 0) {
       body.tools = tools;
@@ -2676,9 +2686,17 @@ async function executeCodingAgent(prompt, workingDir = '', config = {}) {
     enableContextSpawning = true,
     planMode = true,
     enableThinking = false,
-    planTemperature = 0.1,
-    executionTemperature = 0
+    // ── Temperature defaults ──
+    // Historically these defaulted to 0.1 / 0 and were always sent to the
+    // model. Newer Anthropic models (e.g. claude-opus-4-7 and beyond)
+    // deprecated `temperature` and return HTTP 400 if it appears in the
+    // request body at all. We now default to `undefined` so the caller has
+    // to opt in explicitly; callLLMForAgent omits the field from the
+    // payload when it's null/undefined.
+    planTemperature,
+    executionTemperature
   } = config;
+
 
   // Safety: track files created and commands run throughout the agent lifecycle
   const filesCreated = [];

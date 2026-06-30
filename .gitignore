@@ -26,3 +26,7 @@ coverage/
 
 # Private strategy notes (not for public repo)
 docs/internal/
+
+# Portable bundle build artifacts
+dist/
+.build-cache/

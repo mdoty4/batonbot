@@ -405,7 +405,30 @@ Example: `testbench_cline_task_0_2026-04-27T02-22-13.json`
 
 ---
 
+## 📦 Portable Bundle (v3.2)
+
+BatonBot can be packaged as a "no-install" portable bundle: a folder containing
+a pinned `node.exe`, the app, prod-only `node_modules`, and a `start.cmd`
+launcher. End users unzip and double-click — no Node, no npm, no git required.
+
+**Build the Windows x64 bundle (from any OS with Node + npm):**
+
+```bash
+npm run build:portable:win
+```
+
+Output: `dist/batonbot-portable-win-x64/` and `dist/batonbot-portable-win-x64.zip`.
+
+The bundled app reads/writes all mutable state (`prompts.json`, `logs/`, `.env`)
+from the `config/` folder next to `start.cmd`, controlled by the
+`BATONBOT_CONFIG_DIR` env var. Existing dev workflows (`npm start` from the
+repo) continue to use `./prompts.json` and `./logs/` as before — the var
+defaults to `__dirname` when unset.
+
+---
+
 ## 🗺️ Roadmap
+
 
 See [ROADMAP.md](./ROADMAP.md) for what's coming — currently shipping v3.2 (portable bundle) and v3.3 (generic ingress).
 

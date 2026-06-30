@@ -1,12 +1,50 @@
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+
+/* ═══════════════════════════════════════════════════════════
+   Config directory resolution (v3.2 "Portable")
+   ═══════════════════════════════════════════════════════════
+   BatonBot stores three kinds of mutable state on disk:
+     • prompts.json    — projects, tasks, settings
+     • logs/*.json     — per-agent session transcripts
+     • .env            — PORT, LM_STUDIO_URL, optional overrides
+
+   Historically these all lived next to batonbot.js (the repo root).
+   For the portable ZIP build, the app code is read-only inside an
+   `app/` folder and the user's data must live in a sibling `config/`
+   folder so the bundle stays self-contained and deleting the folder
+   cleanly uninstalls everything.
+
+   Resolution order:
+     1. BATONBOT_CONFIG_DIR env var (set by start.cmd / start.sh).
+     2. __dirname (legacy behavior — existing dev workflow unchanged).
+
+   Static assets (index.html, modules/, styles.css) are app code,
+   NOT config, and continue to be served from __dirname.
+   ─────────────────────────────────────────────────────────── */
+const CONFIG_DIR = (() => {
+  const fromEnv = process.env.BATONBOT_CONFIG_DIR;
+  if (fromEnv && fromEnv.trim()) {
+    return path.resolve(fromEnv.trim());
+  }
+  return __dirname;
+})();
+
+// Ensure the config dir exists before dotenv runs.
+if (!fs.existsSync(CONFIG_DIR)) {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+}
+
+// Load .env from the config dir (falls back to repo root in dev).
+require('dotenv').config({ path: path.join(CONFIG_DIR, '.env') });
+
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
-const fs = require('fs');
 const os = require('os');
-const path = require('path');
 const { spawn } = require('child_process');
 const treeKill = require('tree-kill');
+
 
 /* ═══════════════════════════════════════════════════════════
    Cross-platform helpers
@@ -53,6 +91,28 @@ function quoteArgForWindowsCmd(arg) {
 }
 
 function spawnCompat(command, args, opts = {}) {
+  // ── v3.2.2 Cline-on-Windows hang fix ──
+  // Cline (and likely Aider) on Windows blocks indefinitely when spawned by
+  // Node with the default stdio: ['pipe', 'pipe', 'pipe']. The child gets
+  // an OPEN stdin pipe that never receives data and never sees EOF, so its
+  // first-call onboarding / auth-detection code waits forever on stdin.
+  //
+  // Reproduced on a clean Windows 11 VM with Cline 3.0.34:
+  //   • `cline --json -y -P anthropic -m claude-opus-4-7 "..."` → works in cmd.exe
+  //   • Same command + `< nul` (closed stdin)                   → works in cmd.exe
+  //   • Same command spawned by Node                             → hangs forever
+  //
+  // The `stdio: 'ignore'` on stdin is the Node equivalent of `< nul`:
+  // Cline reads EOF immediately and proceeds. We keep stdout/stderr as
+  // pipes so we can stream the agent's JSON output to the UI. Callers can
+  // override by passing `opts.stdio` (e.g., for git init we don't care).
+  //
+  // This applies to BOTH Windows and POSIX — there's no downside to
+  // ignoring stdin for tools that don't read it, and macOS Cline can hit
+  // the same trap if a user runs BatonBot through a launcher (like
+  // `start.cmd` or a detached double-click) where stdin is not a TTY.
+  const defaultStdio = ['ignore', 'pipe', 'pipe'];
+
   if (IS_WINDOWS) {
     // We deliberately do NOT append `.cmd` here. cmd.exe's command resolver
     // honors the PATHEXT environment variable (typically
@@ -69,6 +129,7 @@ function spawnCompat(command, args, opts = {}) {
       'cmd.exe',
       ['/d', '/s', '/c', command, ...quotedArgs],
       {
+        stdio: defaultStdio,           // ← v3.2.2 fix; caller can override
         ...opts,
         shell: false,
         windowsVerbatimArguments: true,
@@ -77,6 +138,7 @@ function spawnCompat(command, args, opts = {}) {
     );
   }
   return spawn(command, args, {
+    stdio: defaultStdio,                // ← v3.2.2 fix; caller can override
     ...opts,
     shell: opts.shell ?? false,
     windowsHide: true,
@@ -120,12 +182,36 @@ const batonCodeThinkingAgent = require('./modules/agents/baton-code-thinking');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const PROMPTS_FILE = path.join(__dirname, 'prompts.json');
-const logsDir = path.join(__dirname, 'logs');
+const PROMPTS_FILE = path.join(CONFIG_DIR, 'prompts.json');
+const logsDir = path.join(CONFIG_DIR, 'logs');
 
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
+
+/* ── First-run shim ────────────────────────────────────────────────
+   For portable bundle users, the unzipped `config/` dir is empty on
+   first launch. Seed it from `prompts.json.example` (shipped next to
+   batonbot.js) so the UI has somewhere to read/write state.
+   ────────────────────────────────────────────────────────────────── */
+(function seedConfigOnFirstRun() {
+  try {
+    if (fs.existsSync(PROMPTS_FILE)) return;
+    const examplePath = path.join(__dirname, 'prompts.json.example');
+    if (fs.existsSync(examplePath)) {
+      fs.copyFileSync(examplePath, PROMPTS_FILE);
+      console.log(`[CONFIG] First-run: seeded ${PROMPTS_FILE} from prompts.json.example`);
+    } else {
+      // No example available — write a minimal valid state file.
+      const minimal = { projects: [], activeProjectId: null, aiderConfig: {} };
+      fs.writeFileSync(PROMPTS_FILE, JSON.stringify(minimal, null, 2), 'utf8');
+      console.log(`[CONFIG] First-run: created empty state file at ${PROMPTS_FILE}`);
+    }
+  } catch (err) {
+    console.error('[CONFIG] First-run seeding failed:', err.message);
+  }
+})();
+
 
 // ═══════════════════════════════════════════
 // Phase 3: Execution Controls & Real-Time Feedback — Backend State
@@ -1194,12 +1280,23 @@ ${prompt}`;
         persistTaskSummary(projectId, taskIndex, taskSummary);
       }
 
-      return { success: true, result };
+      // Propagate the agent's actual success/error to the caller so the
+      // orchestrator (executeAgentTask → triggerAgentSingle) can mark the
+      // task as failed when the underlying LLM/tool loop failed. Returning
+      // an unconditional { success: true } would let LLM-rejection failures
+      // (like Anthropic's deprecated-temperature 400) get reported as
+      // successful tasks, producing the "N succeeded, 0 failed" lie.
+      return {
+        success: result?.success !== false,
+        error: result?.error || null,
+        result
+      };
     }
   };
 }
 
 const AGENT_REGISTRY = {
+
   'baton-code': buildBatonCodeAgentEntry(batonCodeAgent),
   'baton-code-thinking': buildBatonCodeAgentEntry(batonCodeThinkingAgent),
   aider: {
@@ -1407,17 +1504,31 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
         result = await agent.send_message(task.prompt, {}, cwd, projectId, { taskIndex, agentName });
       }
 
-      console.log(`[EXECUTE] ${agent.name} task ${taskIndex} sent successfully`);
+      // ── Honor the agent's reported success. Baton Code returns
+      // { success: false, error } when the LLM call or tool loop failed;
+      // Telegram only throws on failure, so its result is always success. ──
+      const agentSucceeded = result?.success !== false;
+      const agentError = result?.error || null;
+
+      if (agentSucceeded) {
+        console.log(`[EXECUTE] ${agent.name} task ${taskIndex} sent successfully`);
+      } else {
+        console.error(`[EXECUTE] ${agent.name} task ${taskIndex} reported failure: ${agentError || '(no error message)'}`);
+      }
       activeSessions.delete(taskIndex);
 
       const currentState = getState();
       const currentProject = currentState.projects.find(p => p.id === projectId);
       if (currentProject && currentProject.tasks[taskIndex]) {
-        currentProject.tasks[taskIndex].state = 'done';
+        currentProject.tasks[taskIndex].state = agentSucceeded ? 'done' : 'failed';
         currentProject.tasks[taskIndex].completedAt = new Date().toISOString();
+        if (!agentSucceeded && agentError) {
+          currentProject.tasks[taskIndex].error = agentError;
+        }
         saveState(currentState);
       }
-      return Promise.resolve({ success: true });
+      return Promise.resolve({ success: agentSucceeded, error: agentError });
+
     } catch (err) {
       console.error(`[EXECUTE] ${agent.name} task ${taskIndex} failed:`, err.message);
       activeSessions.delete(taskIndex);
@@ -1947,16 +2058,17 @@ app.post('/api/cline/headless', async (req, res) => {
   })() : 'headless').replace(/[^a-zA-Z0-9_-]/g, '_');
   const timestamp2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const sessionId = `${headlessProjectTitle}_cline_task_0_${timestamp2}`;
-  const logFile = path.join(__dirname, 'logs', `${sessionId}.json`);
+  const logFile = path.join(logsDir, `${sessionId}.json`);
 
   console.log(`[HEADLESS CLINE] Session: ${sessionId}`);
   console.log(`[HEADLESS CLINE] Prompt: ${prompt}`);
   console.log(`[HEADLESS CLINE] Working directory: ${cwd}`);
 
   // Ensure logs directory exists
-  if (!fs.existsSync(path.join(__dirname, 'logs'))) {
-    fs.mkdirSync(path.join(__dirname, 'logs'), { recursive: true });
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
   }
+
 
   // Ensure git is initialized in working directory
   ensureGitInitialized(cwd).catch((err) => {
