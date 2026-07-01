@@ -1,6 +1,6 @@
 {
   "name": "batonbot",
-  "version": "3.2.2",
+  "version": "3.2.3",
 
   "description": "Visual AI Agent Workflow Orchestrator - Design, visualize, and execute complex AI pipelines by chaining multiple prompts and agents into repeatable workflows.",
   "main": "batonbot.js",
@@ -8,6 +8,7 @@
     "start": "node batonbot.js",
     "dev": "npx nodemon batonbot.js",
     "build:portable:win": "node scripts/build-portable/build-win.js",
+    "build:portable:mac": "node scripts/build-portable/build-mac.js --arch arm64",
     "test": "echo \"Error: no test specified\" && exit 1"
 
   },

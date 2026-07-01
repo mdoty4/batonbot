@@ -6,15 +6,19 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 
 ---
 
-## Now — v3.2 "Portable" *(in progress)*
+## Now — v3.2 "Portable" *(shipping)*
 
 **Headline:** Download, unzip, double-click. No git, no npm, no Python required.
 
-- Portable Windows ZIP build with bundled Node.js runtime
-- Config folder lives next to the executable (`prompts.json`, `.env`, `logs/`)
-- macOS + Linux portable variants
-- README install-first rewrite + 30-second install GIF
-- Launch announcement post (HN, r/LocalLLaMA, X)
+- [x] Portable Windows ZIP build with bundled Node.js runtime (**v3.2.2**)
+- [x] Config folder lives next to the executable (`prompts.json`, `.env`, `logs/`)
+- [x] Windows Cline `stdin`-hang bug fixed — Cline now works cleanly on Windows 10/11 (**v3.2.2**)
+- [x] macOS Apple Silicon (arm64) portable variant with `start.command` launcher (**v3.2.3**)
+- [x] README install-first rewrite (portable listed as Option A)
+- [ ] macOS Intel (x64) portable variant
+- [ ] Linux portable variant
+- [ ] 30-second install GIF
+- [ ] Launch announcement post (HN, r/LocalLLaMA, X)
 
 ---
 

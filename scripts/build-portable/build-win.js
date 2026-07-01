@@ -18,8 +18,12 @@
  */
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
-const { execSync, spawnSync } = require('child_process');
+const { execSync } = require('child_process');
+const {
+  DIST_ROOT,
+  makeLog, rmrf, download,
+  copyAppFiles, stagedNpmInstall, ensureCacheDir,
+} = require('./common');
 
 const NODE_VERSION_DEFAULT = '20.18.1';
 const args = process.argv.slice(2);
@@ -29,65 +33,16 @@ const nodeVersion = (() => {
 })();
 const SKIP_ZIP = args.includes('--skip-zip');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const DIST_ROOT = path.join(REPO_ROOT, 'dist');
 const BUNDLE_NAME = 'batonbot-portable-win-x64';
 const BUNDLE_DIR = path.join(DIST_ROOT, BUNDLE_NAME);
 const APP_DIR = path.join(BUNDLE_DIR, 'app');
 const CONFIG_DIR = path.join(BUNDLE_DIR, 'config');
-const CACHE_DIR = path.join(REPO_ROOT, '.build-cache');
 
-const APP_FILES = [
-  'batonbot.js',
-  'index.html',
-  'styles.css',
-  'board.css',
-  'prompts.json.example',
-  'skill.md',
-  'LICENSE',
-  'package.json',
-  'package-lock.json',
-];
-const APP_DIRS = ['modules'];
-
-function log(msg) { console.log(`[build-win] ${msg}`); }
-
-function rmrf(p) {
-  if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
-}
-
-function copyDirSync(src, dst) {
-  fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) copyDirSync(s, d);
-    else fs.copyFileSync(s, d);
-  }
-}
-
-function download(url, destPath) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    const req = https.get(url, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        file.close(); fs.unlinkSync(destPath);
-        return download(res.headers.location, destPath).then(resolve, reject);
-      }
-      if (res.statusCode !== 200) {
-        file.close(); fs.unlinkSync(destPath);
-        return reject(new Error(`HTTP ${res.statusCode} fetching ${url}`));
-      }
-      res.pipe(file);
-      file.on('finish', () => file.close(resolve));
-    });
-    req.on('error', (err) => { file.close(); fs.unlinkSync(destPath); reject(err); });
-  });
-}
+const log = makeLog('build-win');
 
 async function fetchPinnedNodeExe() {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-  const cached = path.join(CACHE_DIR, `node-v${nodeVersion}-win-x64.exe`);
+  const cacheDir = ensureCacheDir();
+  const cached = path.join(cacheDir, `node-v${nodeVersion}-win-x64.exe`);
   if (fs.existsSync(cached)) {
     log(`Using cached node.exe (${nodeVersion})`);
     return cached;
@@ -99,28 +54,7 @@ async function fetchPinnedNodeExe() {
   return cached;
 }
 
-function stagedNpmInstall() {
-  log('Installing prod-only node_modules into staged app/');
-  // Copy package*.json into APP_DIR first, then run npm ci --omit=dev there.
-  for (const f of ['package.json', 'package-lock.json']) {
-    fs.copyFileSync(path.join(REPO_ROOT, f), path.join(APP_DIR, f));
-  }
-  const result = spawnSync('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], {
-    cwd: APP_DIR,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
-  if (result.status !== 0) {
-    throw new Error(`npm ci failed with exit code ${result.status}`);
-  }
-}
-
 function writeStartCmd() {
-  // start.cmd:
-  //   - Sets BATONBOT_CONFIG_DIR to the sibling config/ folder.
-  //   - Launches bundled node.exe against app\batonbot.js.
-  //   - Waits for the server to bind, then opens the default browser.
-  //   - Keeps a console window open so the user can see logs / Ctrl+C to stop.
   const content = [
     '@echo off',
     'setlocal',
@@ -189,17 +123,9 @@ async function main() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 
   log('Copying app files...');
-  for (const f of APP_FILES) {
-    const src = path.join(REPO_ROOT, f);
-    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(APP_DIR, f));
-    else log(`  (skipping missing file: ${f})`);
-  }
-  for (const d of APP_DIRS) {
-    const src = path.join(REPO_ROOT, d);
-    if (fs.existsSync(src)) copyDirSync(src, path.join(APP_DIR, d));
-  }
+  copyAppFiles(APP_DIR, log);
 
-  stagedNpmInstall();
+  stagedNpmInstall(APP_DIR, log);
 
   log('Fetching pinned node.exe...');
   const nodeExeSrc = await fetchPinnedNodeExe();
@@ -215,7 +141,6 @@ async function main() {
     try {
       const zipPath = path.join(DIST_ROOT, `${BUNDLE_NAME}.zip`);
       rmrf(zipPath);
-      // Use system `zip` (macOS/Linux). On Windows use PowerShell Compress-Archive.
       if (process.platform === 'win32') {
         execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${BUNDLE_DIR}\\*' -DestinationPath '${zipPath}'"`, { stdio: 'inherit' });
       } else {

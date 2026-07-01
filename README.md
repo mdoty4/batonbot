@@ -23,40 +23,34 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot m
 
 
 
-## 🧭 Platform Support Matrix (v3.1.0)
+## 🧭 Platform Support Matrix (v3.2.2)
 
-BatonBot runs on macOS, Linux, and Windows from a single codebase. The bundled
-agents have different platform reliability today:
+BatonBot runs on macOS, Linux, and Windows from a single codebase. As of
+v3.2.2, all bundled agents work across all three platforms:
 
-| Agent                  | macOS  | Windows                                     | Linux*  |
-|------------------------|--------|---------------------------------------------|---------|
-| Baton Code             | ✅      | ✅                                           | ✅       |
-| Baton Code (Thinking)  | ✅      | ✅                                           | ✅       |
-| Cline                  | ✅      | ⚠️ Known issue — see note below              | ✅       |
-| Aider                  | ✅      | ⚠️ Untested on Windows                       | ✅       |
-| Telegram               | ✅      | ✅                                           | ✅       |
+| Agent                  | macOS  | Windows | Linux*  |
+|------------------------|--------|---------|---------|
+| Baton Code             | ✅      | ✅       | ✅       |
+| Baton Code (Thinking)  | ✅      | ✅       | ✅       |
+| Cline                  | ✅      | ✅       | ✅       |
+| Aider                  | ✅      | ✅       | ✅       |
+| Telegram               | ✅      | ✅       | ✅       |
 
-*Linux is expected to work but is less actively tested than macOS.
+*Linux is expected to work but is less actively tested than macOS/Windows.
 
-**Windows note for Cline:** as of v3.1.0, BatonBot spawns `cline.cmd` cleanly
-on Windows (git resolution, auth path, providers.json injection, and the
-spawn pipe are all verified working), but Cline itself produces no
-stdout/stderr inside the BatonBot child process even though identical
-invocations succeed in a standalone `cmd.exe`. Investigation is ongoing.
-**Recommended on Windows: use the Baton Code / Baton Code (Thinking) agents.**
-They are HTTP-based, don't go through Cline at all, and run great there.
-macOS users — all agents work as expected.
+**Cline on Windows — fixed in v3.2.2.** Earlier releases (v3.1.x) had a
+silent-hang issue where `cline.cmd` produced no stdout/stderr inside the
+BatonBot child process on Windows. Root cause: Node's default open stdin
+pipe blocked Cline's first-call init forever. `spawnCompat()` now uses
+`stdio: ['ignore', 'pipe', 'pipe']` (the Node equivalent of `< nul`), and
+Cline runs cleanly on Windows 10/11. See the
+[v3.2.2 release notes](https://github.com/mdoty4/batonbot/releases/tag/v3.2.2)
+for the technical write-up.
 
-If you must run Cline on Windows, try:
+Regardless of platform, the **Baton Code** and **Baton Code (Thinking)**
+agents remain the fastest way to get started — they're HTTP-based and
+require no external CLI installation.
 
-```cmd
-set BATONBOT_NO_AUTO_AUTH=1
-npm.cmd start
-```
-
-…after running `cline auth --provider anthropic --apikey <KEY> --modelid <MODEL>`
-once in cmd.exe. This hands Cline auth ownership entirely to your persisted
-`cline auth` config and may sidestep the silent-output issue.
 
 ## Why I Built This
 
@@ -83,7 +77,28 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
 
 ## 🛠️ Installation
 
-### Prerequisites
+Two options: **portable** (no install, download & double-click) or **from source**.
+
+### Option A — Portable (no install required)
+
+Download the pre-packaged bundle from the [Releases page](https://github.com/mdoty4/batonbot/releases), unzip, double-click. No Node, no npm, no git required.
+
+| Platform          | Bundle                                        | Status         |
+|-------------------|-----------------------------------------------|----------------|
+| Windows x64       | `batonbot-portable-win-x64.zip` → `start.cmd` | ✅ v3.2.2       |
+| macOS Apple Silicon (arm64) | `batonbot-portable-mac-arm64.zip` → `start.command` | ✅ v3.2.3 |
+| macOS Intel (x64) | —                                             | Planned         |
+| Linux             | —                                             | Planned         |
+
+All settings, projects, and logs live in a `config/` folder next to the launcher — delete the folder to uninstall cleanly.
+
+> **macOS first-launch note:** Because the bundle isn't Apple-notarized yet, Gatekeeper will block `start.command` the first time. Right-click → **Open** → **Open** in the dialog. macOS remembers your choice; from then on double-click works normally. Or run `xattr -dr com.apple.quarantine .` inside the unzipped folder once.
+
+> **Windows first-launch note:** SmartScreen may warn ("Windows protected your PC"). Click **More info** → **Run anyway**. Bundles are not code-signed yet.
+
+### Option B — From source (all platforms)
+
+**Prerequisites**
 
 - **Node.js** 18+ and npm
 - **Git** (must be on `PATH`)
@@ -91,6 +106,7 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
 - **(Optional) Aider CLI** for Aider agent tasks
 
 > **Cross-platform**: BatonBot runs on **macOS, Linux, and Windows** from a single codebase. Platform-specific differences (process spawning, child-tree termination) are handled internally via `process.platform` detection — no separate Windows build required.
+
 
 ### Windows-specific notes
 
@@ -405,32 +421,46 @@ Example: `testbench_cline_task_0_2026-04-27T02-22-13.json`
 
 ---
 
-## 📦 Portable Bundle (v3.2)
+## 📦 Building the Portable Bundle
 
 BatonBot can be packaged as a "no-install" portable bundle: a folder containing
-a pinned `node.exe`, the app, prod-only `node_modules`, and a `start.cmd`
-launcher. End users unzip and double-click — no Node, no npm, no git required.
+a pinned Node binary, the app, prod-only `node_modules`, and a
+double-clickable launcher. End users unzip and double-click — no Node, no
+npm, no git required. See [Installation → Portable](#option-a--portable-no-install-required)
+for the end-user quick start.
 
-**Build the Windows x64 bundle (from any OS with Node + npm):**
+**Build a bundle from source (from any OS with Node + npm):**
 
 ```bash
+# Windows x64 (bundled node.exe + start.cmd)
 npm run build:portable:win
+
+# macOS Apple Silicon (bundled node arm64 + start.command)
+npm run build:portable:mac
 ```
 
-Output: `dist/batonbot-portable-win-x64/` and `dist/batonbot-portable-win-x64.zip`.
+Output:
+
+- `dist/batonbot-portable-win-x64/` + `.zip`
+- `dist/batonbot-portable-mac-arm64/` + `.zip`
 
 The bundled app reads/writes all mutable state (`prompts.json`, `logs/`, `.env`)
-from the `config/` folder next to `start.cmd`, controlled by the
+from the `config/` folder next to the launcher, controlled by the
 `BATONBOT_CONFIG_DIR` env var. Existing dev workflows (`npm start` from the
 repo) continue to use `./prompts.json` and `./logs/` as before — the var
 defaults to `__dirname` when unset.
+
+Shared build helpers live in `scripts/build-portable/common.js`; per-platform
+scripts (`build-win.js`, `build-mac.js`) handle the Node download and
+platform-specific launcher/README generation.
+
 
 ---
 
 ## 🗺️ Roadmap
 
 
-See [ROADMAP.md](./ROADMAP.md) for what's coming — currently shipping v3.2 (portable bundle) and v3.3 (generic ingress).
+See [ROADMAP.md](./ROADMAP.md) for what's coming — v3.2.2 (Windows portable) and v3.2.3 (macOS arm64 portable) have shipped; v3.3 (generic ingress) is next.
 
 ---
 
