@@ -175,6 +175,11 @@
                     onProviderChange(aiderConfig.provider, 'editor');
                 }
 
+                // Populate Jira channel fields (v3.4)
+                if (typeof window.populateJiraFields === 'function') {
+                    window.populateJiraFields(project.jiraConfig);
+                }
+
                 // Open drawer
                 openProjectEditor();
             } catch (e) {

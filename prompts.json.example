@@ -21,5 +21,6 @@
       "_description": "Official Git MCP Server by Anthropic — provides git_commit, git_push, git_diff, git_log, git_branch, git_status tools",
       "_installation": "Run 'npm install -g @anthropic-ai/mcp-server-git' or use npx (as shown above). The server will be auto-installed on first use when using npx."
     }
-  ]
+  ],
+  "_ingressNote": "v3.3+ — each project object created via POST /api/projects automatically receives an `ingressToken` field (64-char hex). External systems POST tasks to /api/projects/:id/ingest with `Authorization: Bearer <token>`. See docs/task-schema.md."
 }

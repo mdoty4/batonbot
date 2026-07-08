@@ -13,6 +13,17 @@ function killTree(child, signal = 'SIGTERM') {
   catch (_) { try { child.kill(signal); } catch (__) {} }
 }
 
+/* ── LM Studio default fallback ──
+   Empty/undefined apiBase values fall back to LM Studio's default endpoint.
+   This mirrors how the Cline agent already treats an empty apiBase as
+   "use LM Studio" so that Baton Code / Baton Code Thinking / chat behave
+   consistently with the same global config. */
+const LM_STUDIO_DEFAULT_URL = 'http://localhost:1234/v1';
+function resolveApiBase(apiBase) {
+  const trimmed = (apiBase || '').trim();
+  return trimmed || LM_STUDIO_DEFAULT_URL;
+}
+
 
 /**
  * callLLM — Helper that sends a messages array to the BatonBot /api/chat
@@ -1694,7 +1705,6 @@ function anthropicToolToOpenai(toolUse, toolCallId) {
 
 async function callLLMForAgent(messages, config = {}) {
   const {
-    apiBase,
     apiKey,
     model,
     tools,
@@ -1703,8 +1713,18 @@ async function callLLMForAgent(messages, config = {}) {
     temperature
   } = config;
 
-  if (!apiBase || !apiKey) {
-    throw new Error('callLLMForAgent requires apiBase and apiKey in config');
+  // Empty apiBase → fall back to LM Studio's default. Mirrors Cline's implicit
+  // "use lmstudio" behavior so Baton Code / Baton Code Thinking / chat all work
+  // against the same global config without requiring the user to type a URL.
+  const apiBase = resolveApiBase(config.apiBase);
+
+  // Local LLM servers (LM Studio, Ollama, llama.cpp, etc.) typically bind to
+  // localhost/127.0.0.1/0.0.0.0 and don't require an API key. Only enforce the
+  // apiKey guard for non-local endpoints so blank-key configs against LM Studio
+  // stop failing immediately. Remote endpoints still get a clear error.
+  const isLocalEndpoint = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::|\/|$)/i.test(apiBase);
+  if (!apiKey && !isLocalEndpoint) {
+    throw new Error('callLLMForAgent requires apiKey for non-local endpoints. Configure it in Settings → LLM Configuration.');
   }
 
   const controller = new AbortController();
@@ -1836,12 +1856,17 @@ async function callLLMForAgent(messages, config = {}) {
       body.max_tokens = maxTokens;
     }
 
+    // Only send Authorization when we actually have a key. LM Studio ignores
+    // a spurious `Bearer ` header, but stricter OpenAI-compatible proxies
+    // (e.g. LiteLLM in "require auth" mode) will 400 on an empty bearer.
+    const openaiHeaders = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      openaiHeaders['Authorization'] = `Bearer ${apiKey}`;
+    }
+
     const response = await fetch(`${apiBase.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: openaiHeaders,
       body: JSON.stringify(body),
       signal: controller.signal
     });
@@ -2670,9 +2695,9 @@ function expandFileReferences(prompt, workingDir) {
  */
 async function executeCodingAgent(prompt, workingDir = '', config = {}) {
   const {
-    apiBase,
     apiKey,
     model,
+
     maxIterations = 50,
     timeout,
     maxTokens,
@@ -2705,9 +2730,18 @@ async function executeCodingAgent(prompt, workingDir = '', config = {}) {
   // Checklist state — tracks subtask progress within this session
   let checklist = null; // Array of { text: string, status: 'pending' | 'started' | 'done' | 'skipped', note?: string }
 
-  // Guard: missing API credentials
-  if (!apiBase || !apiKey) {
-    const errorMsg = 'executeCodingAgent requires apiBase and apiKey in config';
+  // Empty apiBase → fall back to LM Studio's default. Mirrors Cline's implicit
+  // "use lmstudio" behavior so Baton Code / Baton Code Thinking / chat all work
+  // against the same global config without requiring the user to type a URL.
+  const apiBase = resolveApiBase(config.apiBase);
+
+  // Local LLM servers (LM Studio, Ollama, llama.cpp) don't require an API key,
+  // so we only enforce apiKey when apiBase points at a remote endpoint. This
+  // matches the relaxed guard in callLLMForAgent() above.
+  const isLocalExec = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::|\/|$)/i.test(apiBase);
+
+  if (!apiKey && !isLocalExec) {
+    const errorMsg = `executeCodingAgent requires apiKey for non-local endpoints (apiBase="${apiBase}"). Configure it in Settings → LLM Configuration.`;
     return {
       success: false,
       filesCreated: [],

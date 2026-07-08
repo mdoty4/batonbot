@@ -107,6 +107,41 @@
     }
   }
 
+  // ── v3.4 Jira lifecycle helpers ─────────────────────────────────────
+  // Both are best-effort fire-and-forget: they never block or fail the UI
+  // action, and the backend endpoints no-op for non-Jira tasks. Both take
+  // an explicit pid (captured at click time) — never window.activeProjectId
+  // at request time (see the project-switch race documented above).
+
+  /**
+   * If this task came from Jira, tell the backend to forget its issue key
+   * so a future Sync can re-import the still-open ticket. Called right
+   * before a Jira-sourced card is deleted from the board.
+   */
+  function forgetJiraKeyIfNeeded(task, pid) {
+    if (!pid || !task || !task.metadata) return;
+    if (task.metadata.source !== 'jira' || !task.metadata.issueKey) return;
+    fetch(`/api/projects/${pid}/jira/forget-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ issueKey: task.metadata.issueKey })
+    }).catch(() => { /* best-effort */ });
+  }
+
+  /**
+   * Notify the backend that a Jira-sourced card was triaged (moved between
+   * PENDING and QUEUE) so it can post a visibility comment on the ticket.
+   */
+  function notifyJiraTaskEvent(task, taskIndex, pid, event) {
+    if (!pid || !task || !task.metadata) return;
+    if (task.metadata.source !== 'jira' || !task.metadata.issueKey) return;
+    fetch(`/api/projects/${pid}/jira/task-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskIndex, event })
+    }).catch(() => { /* best-effort */ });
+  }
+
   function debouncedSave() {
     const pid = boardProjectId;
     if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
@@ -197,12 +232,34 @@
                     : (state === 'failed' || state === 'stopped') ? '! '
                     : '';
 
+    // Column-move buttons: keyboard/click alternative to drag-and-drop.
+    // Drag can be flaky (browser sometimes swallows the drop; running-lock can
+    // leave `card.draggable = false`). These buttons give a reliable path for
+    // triaging a PENDING task into QUEUE (or bouncing one back).
+    const col = classifyColumn(task);
+    let moveButtons = '';
+    if (col === 'pending') {
+      moveButtons = `<button class="card-action-btn" data-action="to-queue" title="Send to Queue">→</button>`;
+    } else if (col === 'queue') {
+      moveButtons = `<button class="card-action-btn" data-action="to-pending" title="Send back to Pending">←</button>`;
+    }
+
+    // v3.4 "Trust Hardening": surface the actual failure reason on the card.
+    // The backend persists task.error on every fail path (including the
+    // friendly "Couldn't reach the LLM… Is LM Studio running?" translation),
+    // so a red badge is never left unexplained.
+    const errorText = (state === 'failed' && task.error) ? String(task.error) : '';
+    const errorHtml = errorText
+      ? `<div class="card-error" title="${esc(errorText)}">❌ ${esc(errorText.length > 140 ? errorText.slice(0, 140) + '…' : errorText)}</div>`
+      : '';
+
     card.innerHTML = `
       <div class="card-header">
         <span class="card-agent-label" data-agent="${esc(agent)}"><span class="card-agent-dot"></span>${esc(agent)}</span>
         <span class="card-state-badge state-${state}">${stateIcon}${esc((STATE_LABELS[state] || state).toLowerCase())}</span>
       </div>
       <div class="card-prompt ${promptText ? '' : 'empty'}">${promptText ? esc(promptText) : 'Click to edit prompt…'}</div>
+      ${errorHtml}
       <div class="card-footer">
         <select class="card-agent-select" data-action="agent">
           ${Object.keys(AGENT_LABELS).map(k =>
@@ -210,6 +267,7 @@
           ).join('')}
         </select>
         <div class="card-actions">
+          ${moveButtons}
           <button class="card-action-btn" data-action="edit" title="Open detail">✎</button>
           <button class="card-action-btn danger" data-action="delete" title="Delete task">🗑</button>
         </div>
@@ -423,15 +481,41 @@
       if (e.target.closest('[data-action="delete"]')) {
         e.stopPropagation();
         if (!confirm('Delete this task?')) return;
+        // v3.4: Jira delete → reimport escape hatch. If this card came from
+        // Jira, tell the backend to forget its issue key BEFORE deleting, so
+        // a future Sync can re-import the (still open) ticket. Pinned to the
+        // captured pid — never window.activeProjectId at request time.
+        const pid = boardProjectId;
+        forgetJiraKeyIfNeeded(boardTasks[idx], pid);
         boardTasks.splice(idx, 1);
         boardTasks.forEach((t, i) => { t.id = i; });
-        const pid = boardProjectId;
         saveTasks(boardTasks, pid).then(() => { if (pid === boardProjectId) renderBoard(); });
         return;
       }
       if (e.target.closest('[data-action="edit"]')) {
         e.stopPropagation();
         openCardDetail(idx);
+        return;
+      }
+      if (e.target.closest('[data-action="to-queue"]')) {
+        e.stopPropagation();
+        if (!boardTasks[idx]) return;
+        boardTasks[idx].orchestrate = true;
+        if (['done', 'failed', 'stopped'].includes(boardTasks[idx].state)) {
+          boardTasks[idx].state = 'pending';
+        }
+        const pid = boardProjectId;
+        saveTasks(boardTasks, pid).then(() => { if (pid === boardProjectId) renderBoard(); });
+        notifyJiraTaskEvent(boardTasks[idx], idx, pid, 'to-queue');
+        return;
+      }
+      if (e.target.closest('[data-action="to-pending"]')) {
+        e.stopPropagation();
+        if (!boardTasks[idx]) return;
+        boardTasks[idx].orchestrate = false;
+        const pid = boardProjectId;
+        saveTasks(boardTasks, pid).then(() => { if (pid === boardProjectId) renderBoard(); });
+        notifyJiraTaskEvent(boardTasks[idx], idx, pid, 'to-pending');
         return;
       }
       if (e.target.closest('[data-action="agent"]')) return; // handled by 'change'
@@ -511,6 +595,26 @@
     if (promptEl) promptEl.value = task.prompt || '';
     if (agentSelEl) agentSelEl.value = agent;
 
+    // v3.4: show the failure reason in the detail drawer too (full text,
+    // not the truncated card version). The element is created lazily so
+    // the drawer HTML in index.html doesn't need a new static block.
+    let errEl = document.getElementById('card-detail-error');
+    if (!errEl && promptEl) {
+      errEl = document.createElement('div');
+      errEl.id = 'card-detail-error';
+      errEl.className = 'card-error';
+      errEl.style.marginTop = '0.5rem';
+      promptEl.closest('.config-section')?.insertAdjacentElement('afterend', errEl);
+    }
+    if (errEl) {
+      if (state === 'failed' && task.error) {
+        errEl.textContent = '❌ ' + task.error;
+        errEl.style.display = '';
+      } else {
+        errEl.style.display = 'none';
+      }
+    }
+
     // Load matching sessions for this task index
     if (sessionsEl) {
       sessionsEl.innerHTML = '<p style="color:#888;font-size:0.85rem;">Loading sessions…</p>';
@@ -576,9 +680,11 @@
     document.getElementById('btn-delete-card-detail')?.addEventListener('click', async () => {
       if (currentDetailIndex == null) return;
       if (!confirm('Delete this task?')) return;
+      // v3.4: Jira delete → reimport escape hatch (same as the card 🗑 button)
+      const pid = boardProjectId;
+      forgetJiraKeyIfNeeded(boardTasks[currentDetailIndex], pid);
       boardTasks.splice(currentDetailIndex, 1);
       boardTasks.forEach((t, i) => { t.id = i; });
-      const pid = boardProjectId;
       await saveTasks(boardTasks, pid);
       if (pid === boardProjectId) renderBoard();
       closeCardDetail();
@@ -740,6 +846,19 @@
           renderBoard();
         }
         break;
+      case 'task_ingested': {
+        // New cards arrived via the ingress API or a channel adapter (Jira,
+        // etc.). Refetch the full task list so they appear live without a
+        // manual refresh.
+        const pid = boardProjectId;
+        const token = loadToken;
+        fetchTasks(pid).then(t => {
+          if (token !== loadToken || pid !== boardProjectId) return;
+          boardTasks = t;
+          renderBoard();
+        });
+        break;
+      }
     }
   }
 

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://rsms.me/">
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
     <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="board.css?v=6">
+    <link rel="stylesheet" href="board.css?v=7">
     <script>
         // Apply saved theme before paint to avoid a flash of the wrong theme.
         (function () {
@@ -256,13 +256,14 @@
                             <div class="config-section">
                                 <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.88rem;">Provider</label>
                                 <select id="config-provider" class="config-input">
-                                    <option value="custom">Custom (Manual)</option>
+                                    <option value="custom">Custom (Manual) — type all fields yourself</option>
+                                    <option value="lmstudio">LM Studio (Local)</option>
                                     <option value="openai">OpenAI</option>
                                     <option value="anthropic">Anthropic</option>
                                     <option value="gemini">Google Gemini</option>
                                     <option value="x-ai">X AI (Grok)</option>
                                 </select>
-                                <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Select your AI service provider. API Base URL and Model will auto-populate.</small>
+                                <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Pick a preset to auto-fill API Base URL / Key / Model. Choose "Custom (Manual)" only if you want to type every field yourself.</small>
                             </div>
 
                             <div class="config-section" style="margin-top: 1rem;">
@@ -295,6 +296,8 @@
 
                             <div class="config-actions">
                                 <button class="btn btn-success" id="btn-save-global-config">💾 Save Global Config</button>
+                                <div id="global-config-error" style="display:none; margin-top: 0.6rem; padding: 0.5rem 0.75rem; background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; border-radius:4px; font-size:0.85rem;"></div>
+                                <div id="global-config-success" style="display:none; margin-top: 0.6rem; padding: 0.5rem 0.75rem; background:#d4edda; color:#155724; border:1px solid #c3e6cb; border-radius:4px; font-size:0.85rem;"></div>
                             </div>
                         </div>
 
@@ -535,6 +538,91 @@
                      <input type="text" id="editor-model" class="config-input" placeholder="(inherits global)">
                  </div>
 
+                 <hr style="margin: 1.5rem 0; border-top: 1px solid #eee;">
+
+                 <h3 style="font-size: 0.95rem; color: #667eea; margin-bottom: 0.5rem;">🎫 Jira Channel</h3>
+                 <p style="color: #666; font-size: 0.82rem; margin-bottom: 1rem;">Poll a Jira project for new tickets and turn them into cards. Tickets labeled <code>fix-now</code> (or priority Highest) auto-run. Tickets labeled <code>queue</code> land in the Queue. Everything else lands in Pending for triage.</p>
+
+                 <div class="config-section">
+                     <label class="config-label" style="display:flex;align-items:center;gap:8px;">
+                         <input type="checkbox" id="editor-jira-enabled" style="width:auto;">
+                         Enable Jira polling for this project
+                     </label>
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Jira Base URL</label>
+                     <input type="text" id="editor-jira-baseUrl" class="config-input" placeholder="https://yourco.atlassian.net">
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Jira Account Email</label>
+                     <input type="text" id="editor-jira-email" class="config-input" placeholder="you@yourco.com">
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Jira API Token</label>
+                     <input type="password" id="editor-jira-apiToken" class="config-input" placeholder="from id.atlassian.com → Security → API tokens">
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">JQL Filter</label>
+                     <input type="text" id="editor-jira-jql" class="config-input" placeholder='project = HW AND statusCategory != Done ORDER BY created DESC'>
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Which tickets to import. New matches become cards; already-imported keys are skipped.</small>
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Poll Interval (seconds, min 30)</label>
+                     <input type="number" id="editor-jira-pollInterval" class="config-input" placeholder="60" min="30">
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Agent for Jira tickets</label>
+                     <select id="editor-jira-defaultAgent" class="config-select">
+                         <option value="cline">🟠 Cline</option>
+                         <option value="baton-code">🟢 Baton Code</option>
+                         <option value="baton-code-thinking">🟢 Baton Code · Thinking</option>
+                         <option value="aider">🟣 Aider</option>
+                     </select>
+                 </div>
+
+                 <!-- v3.4 "Trust Hardening" settings -->
+                 <div class="config-section">
+                     <label class="config-label" style="display:flex;align-items:center;gap:8px;">
+                         <input type="checkbox" id="editor-jira-onlyUnassigned" checked style="width:auto;">
+                         Only import unassigned tickets (don't hijack human work)
+                     </label>
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Tickets assigned to a person are skipped — unless assigned to the bot account below.</small>
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Bot Account Email (optional)</label>
+                     <input type="text" id="editor-jira-botEmail" class="config-input" placeholder="batonbot@yourco.com">
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Tickets assigned to this account are still imported (the "assign-to-bot" workflow).</small>
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label">Max auto-runs per sync</label>
+                     <input type="number" id="editor-jira-maxAutostart" class="config-input" placeholder="3" min="0" value="3">
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Caps how many <code>fix-now</code> tickets auto-run per poll. Extras still import to Queue but wait for ▶.</small>
+                 </div>
+
+                 <div class="config-section">
+                     <label class="config-label" style="display:flex;align-items:center;gap:8px;">
+                         <input type="checkbox" id="editor-jira-transitionOnDone" checked style="width:auto;">
+                         Move Jira ticket to Done when BatonBot completes it
+                     </label>
+                     <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">On success, the ticket auto-transitions to its workflow's Done status. Failed tasks stay put (the ❌ comment explains why).</small>
+                 </div>
+
+                 <p style="color: #888; font-size: 0.76rem; margin-bottom: 1rem;">ℹ️ Only tickets <strong>created after you enable</strong> this channel are imported — pre-existing backlog is never flooded onto the board. Disabling and re-enabling starts a fresh watermark.</p>
+
+                 <div class="config-section">
+                     <button class="btn" id="btn-test-jira" style="background:#667eea;color:white;">🔌 Test Connection</button>
+                     <button class="btn" id="btn-jira-poll-now" style="background:#95a5a6;color:white;">🔄 Sync Now</button>
+                     <span id="jira-test-result" style="font-size:0.82rem;margin-left:8px;"></span>
+                 </div>
+
                  <div class="config-actions">
                      <button class="btn btn-success" id="btn-save-project-editor">💾 Save Changes</button>
                      <button class="btn" id="btn-cancel-project-editor" style="background: #95a5a6; color: white;">Cancel</button>
@@ -605,9 +693,9 @@
         <script defer src="modules/core.js?v=6"></script>
         <script defer src="modules/chat.js?v=4"></script>
 
-        <script defer src="modules/projects.js?v=4"></script>
-        <script defer src="modules/board.js?v=2"></script>
-        <script defer src="modules/project-editor.js?v=3"></script>
+        <script defer src="modules/projects.js?v=5"></script>
+        <script defer src="modules/board.js?v=4"></script>
+        <script defer src="modules/project-editor.js?v=6"></script>
         <script defer src="modules/sessions.js?v=5"></script>
         <script defer src="modules/json-viewer.js?v=3"></script>
         <script defer src="modules/search.js?v=3"></script>

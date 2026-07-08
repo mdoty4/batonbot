@@ -6,7 +6,7 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 
 ---
 
-## Now — v3.2 "Portable" *(shipping)*
+## v3.2 "Portable" *(shipped)*
 
 **Headline:** Download, unzip, double-click. No git, no npm, no Python required.
 
@@ -22,15 +22,41 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 
 ---
 
-## Next — v3.3 "Ingress"
+## v3.3 "Ingress" *(shipped)*
 
 **Headline:** Anything can drop a task into BatonBot — webhooks, files, scripts, other agents.
 
-- Generic ingress webhook: `POST /api/projects/:id/ingest`
-- File-based ingress: drop a `*.task.md` or `*.task.json` in `.batonbot/inbox/`
-- Documented JSON Schema for the task format (`docs/task-schema.md`)
-- Per-project bearer-token auth for the ingress endpoint
-- Manual import UI for one-off bulk imports
+- [x] Generic ingress webhook: `POST /api/projects/:id/ingest`
+- [x] Documented JSON Schema for the task format (`docs/task-schema.md`)
+- [x] Per-project bearer-token auth for the ingress endpoint
+- [ ] File-based ingress: drop a `*.task.md` or `*.task.json` in `.batonbot/inbox/`
+- [ ] Manual import UI for one-off bulk imports
+
+---
+
+## v3.4 "Design Partner / Trust Hardening" *(shipped)*
+
+**Headline:** The Jira channel — pulled forward from v3.8 because a real team wanted it — plus the safety guards that make it trustworthy against a live project.
+
+- [x] Jira polling channel: tickets → cards, label routing (`fix-now` auto-runs, `queue` queues), no webhook/tunnel needed (`docs/jira-setup.md`)
+- [x] **Assignee guard** — human-assigned tickets are never imported; optional bot-account (assign-to-bot workflow)
+- [x] **Autostart cap** — max N fire-and-forget runs per poll (default 3); extras queue for a human ▶
+- [x] **First-run watermark** — enabling Jira never floods the board with pre-existing backlog
+- [x] **Full lifecycle comments back to Jira** — pickup, queue moves, ✅ completion, ❌ failure (idempotent)
+- [x] **Clear failure reasons on cards** — including the friendly "Couldn't reach the LLM… Is LM Studio running?" translation
+- [x] **Delete → reimport escape hatch** — deleting a Jira card lets the next sync re-import the ticket
+- [x] **Auto-transition to Done** — completed tasks move their Jira ticket to Done (category-matched, works with any workflow; toggleable)
+- Known limitations documented in `docs/jira-setup.md` (no re-sync of edited tickets, one-way channel, etc.)
+
+---
+
+## Now — v3.5 "Local-First + Outputs"
+
+**Headline:** Run the whole loop on a local model with zero cloud calls, and get durable, machine-readable results out of every card.
+
+- [ ] **Strict Local-Only Mode** (`BATONBOT_LOCAL_ONLY=1`) — hard-fail any request that would leave the machine
+- [ ] **Results-Out** — each completed card writes `results/<cardId>.result.json` + `.result.md` into the project's repo
+- [ ] **Previous-task context for Cline/Aider** — chained cards can see what the prior card did
 
 ---
 
@@ -38,12 +64,11 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 
 Headlines only. Items inside each will be detailed as we get closer.
 
-- **v3.4 — Local-First + Outputs.** Strict local-only mode. Per-card results written as Markdown + JSON in the project's repo.
-- **v3.5 — Trust & Isolation.** Per-card git worktrees with diff / merge / discard. `ask_user` tool. Approval gates. Restart recovery.
+- **v3.5.1 — Trust & Isolation.** Per-card git worktrees with diff / merge / discard. `ask_user` tool. Approval gates. Restart recovery.
 - **v3.6 — GitHub Loop.** Issue → triage → fix → PR, end to end, via a GitHub App.
 - **v3.6.1+ — Native Specialists.** `baton-summarizer`, `baton-docs-writer`, `baton-test-writer`, `baton-search`, plus a `baton-moltbook-poster` agent for the agent social network.
 - **v3.7 — Mission Control.** Multi-project dashboard. Cost telemetry. Pipeline templates.
-- **v3.8 — Open Substrate.** MCP server. Auto-routing rules. Additional ingress adapters (Linear, Email, Slack, Jira, Moltbook).
+- **v3.8 — Open Substrate.** MCP server. Auto-routing rules. Additional ingress adapters (Linear, Email, Slack, Moltbook). Jira two-way sync (board-created tasks mirrored to Jira, status transitions, re-sync of edited tickets).
 - **v3.9 — Machine Substrate.** API tokens. Outbound webhooks. OpenAPI spec. Headless mode.
 - **v3.10 — Maturity.** Per-repo `BATONBOT.md` policy file. Architecture docs. Public comparison docs.
 

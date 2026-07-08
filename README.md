@@ -317,6 +317,32 @@ Base URL: `http://localhost:4321`
 | `POST` | `/api/project/:id/tasks/:taskIndex/aider` | Send task specifically to Aider |
 | `POST` | `/api/project/:id/tasks/:taskIndex/init` | Initialize git in working directory |
 
+### Ingress (v3.3) — External Task Ingestion
+
+Anything can drop a task into BatonBot — Telegram bots, Jira webhooks, CI pipelines, other agents. Each project has its own bearer token; external callers `POST` a task payload and it lands on the kanban board.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/projects/:id/ingress-token` | Retrieve the project's ingress bearer token (localhost/UI use) |
+| `POST` | `/api/projects/:id/ingest` | Ingest a task or batch of tasks (requires `Authorization: Bearer <token>`) |
+
+**Quick example** — post a task from any shell:
+
+```bash
+# 1. Grab the token
+TOKEN=$(curl -s http://localhost:3000/api/projects/proj_123/ingress-token | jq -r .ingressToken)
+
+# 2. Post a task
+curl -X POST http://localhost:3000/api/projects/proj_123/ingest \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Fix the login button alignment on mobile"}'
+```
+
+To rotate a token (e.g. after suspected leak), send `PUT /api/projects/:id` with `{ "regenerateIngressToken": true }`.
+
+See [`docs/task-schema.md`](docs/task-schema.md) for the full JSON schema, batch format, and example payloads from Telegram / Jira / GitHub / CI sources. Run `./test_ingress.sh` to smoke-test the endpoint end-to-end.
+
 ### Chat & LLM
 
 | Method | Endpoint | Description |

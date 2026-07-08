@@ -7,61 +7,109 @@
             custom: {
                 name: 'Custom (Manual)',
                 apiBase: '',
+                apiKey: '',
+                models: [],
+                defaultModel: ''
+            },
+            lmstudio: {
+                name: 'LM Studio (Local)',
+                apiBase: 'http://localhost:1234/v1',
+                // LM Studio ignores the API key value but the transport layer wants
+                // *some* string so we ship a sentinel that also flags "local" in logs.
+                apiKey: 'lm-studio',
                 models: [],
                 defaultModel: ''
             },
             openai: {
                 name: 'OpenAI',
                 apiBase: 'https://api.openai.com/v1',
+                apiKey: '',
                 models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
                 defaultModel: 'gpt-4o'
             },
             anthropic: {
                 name: 'Anthropic',
                 apiBase: 'https://api.anthropic.com',
+                apiKey: '',
                 models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
                 defaultModel: 'claude-sonnet-4-20250514'
             },
             gemini: {
                 name: 'Google Gemini',
                 apiBase: 'https://generativelanguage.googleapis.com/v1beta/openai',
+                apiKey: '',
                 models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
                 defaultModel: 'gemini-2.5-pro'
             },
             'x-ai': {
                 name: 'X AI (Grok)',
                 apiBase: 'https://api.x.ai/v1',
+                apiKey: '',
                 models: ['grok-2', 'grok-2-mini', 'grok-3'],
                 defaultModel: 'grok-2'
             }
         };
 
-        /* ── Handle Provider Change ── */
+        /* Given a scope prefix, is the current field value either empty
+           or exactly the default for the *previous* provider? If so, we
+           can safely overwrite it without clobbering user-typed data. */
+        function _safeToOverwrite(inputEl, prevProviderDefault) {
+            if (!inputEl) return false;
+            const cur = (inputEl.value || '').trim();
+            if (!cur) return true;
+            if (prevProviderDefault && cur === prevProviderDefault) return true;
+            return false;
+        }
+
+        /* ── Handle Provider Change ──
+           Populates actual .value on the visible inputs (not just placeholders)
+           so that submits carry real data. Preserves user-typed values by only
+           overwriting fields that are empty OR still match the *previous*
+           provider's default (tracked via dataset.prevProvider on the select). */
         function onProviderChange(provider, scope) {
             const providerData = PROVIDERS[provider];
             if (!providerData) return;
 
             // Determine which elements to update based on scope
             let prefix;
+            let selectId;
             if (scope === 'project') {
                 prefix = 'project-config-';
+                selectId = 'project-config-provider';
             } else if (scope === 'editor') {
                 prefix = 'editor-';
+                selectId = 'editor-provider';
             } else {
                 prefix = 'config-';
+                selectId = 'config-provider';
             }
 
-            // Auto-populate API Base URL with provider's default
+            const selectEl = document.getElementById(selectId);
+            const prevProvider = selectEl ? (selectEl.dataset.prevProvider || '') : '';
+            const prevData = PROVIDERS[prevProvider] || null;
+
             const apiBaseInput = document.getElementById(`${prefix}apiBase`);
-            if (apiBaseInput) {
-                apiBaseInput.value = providerData.apiBase;
+            const apiKeyInput  = document.getElementById(`${prefix}apiKey`);
+            const modelInput   = document.getElementById(`${prefix}model`);
+
+            // Custom = leave everything alone; user types their own values.
+            if (provider !== 'custom') {
+                if (_safeToOverwrite(apiBaseInput, prevData ? prevData.apiBase : '')) {
+                    apiBaseInput.value = providerData.apiBase || '';
+                }
+                if (_safeToOverwrite(apiKeyInput, prevData ? prevData.apiKey : '')) {
+                    // Only assign if we have a preset apiKey to apply (LM Studio).
+                    // Otherwise leave whatever's there (empty or user-typed).
+                    if (providerData.apiKey) {
+                        apiKeyInput.value = providerData.apiKey;
+                    }
+                }
+                if (_safeToOverwrite(modelInput, prevData ? prevData.defaultModel : '')) {
+                    modelInput.value = providerData.defaultModel || '';
+                }
             }
 
-            // Set model input to provider's default model
-            const modelInput = document.getElementById(`${prefix}model`);
-            if (modelInput) {
-                modelInput.value = providerData.defaultModel;
-            }
+            if (selectEl) selectEl.dataset.prevProvider = provider;
         }
 
         /* ── Update sequence status text in header ── */
@@ -184,6 +232,12 @@
                 document.getElementById('config-apiBase').value = config.apiBase || '';
                 document.getElementById('config-apiKey').value = config.apiKey || '';
                 document.getElementById('config-model').value = config.model || '';
+
+                // Track the currently-loaded provider so the next dropdown change
+                // can safely overwrite fields that still match this provider's defaults.
+                if (providerSelect) {
+                    providerSelect.dataset.prevProvider = config.provider || '';
+                }
                 // Load maxTokens preset (default to 16384 = Extended)
                 const maxTokensSelect = document.getElementById('config-maxTokens');
                 if (maxTokensSelect && config.maxTokens) {
@@ -199,12 +253,39 @@
             }
         }
 
+        function _showGlobalConfigMsg(kind, text) {
+            const errEl = document.getElementById('global-config-error');
+            const okEl  = document.getElementById('global-config-success');
+            if (errEl) errEl.style.display = 'none';
+            if (okEl)  okEl.style.display  = 'none';
+            const target = kind === 'error' ? errEl : okEl;
+            if (target) {
+                target.textContent = text;
+                target.style.display = 'block';
+                if (kind === 'success') {
+                    setTimeout(() => { target.style.display = 'none'; }, 4000);
+                }
+            }
+        }
+
         async function saveConfig() {
             const provider = document.getElementById('config-provider').value;
             const apiBase = document.getElementById('config-apiBase').value.trim();
             const apiKey = document.getElementById('config-apiKey').value.trim();
             const model = document.getElementById('config-model').value.trim();
             const maxTokens = document.getElementById('config-maxTokens').value;
+
+            // Guardrail: non-custom providers must have an API Base URL populated.
+            // (Custom mode is explicitly "type everything yourself" — no validation.)
+            if (provider && provider !== 'custom' && !apiBase) {
+                _showGlobalConfigMsg('error', 'API Base URL is required. Pick a provider preset (e.g. LM Studio) or switch to "Custom (Manual)" and type your own.');
+                return;
+            }
+
+            // Write back trimmed values so users see what actually got POSTed.
+            document.getElementById('config-apiBase').value = apiBase;
+            document.getElementById('config-apiKey').value = apiKey;
+            document.getElementById('config-model').value = model;
 
             try {
                 const response = await fetch('/api/config', {
@@ -213,13 +294,15 @@
                     body: JSON.stringify({ aiderConfig: { provider, apiBase, apiKey, model, maxTokens } })
                 });
                 if (response.ok) {
-                    alert('Configuration saved successfully!');
+                    _showGlobalConfigMsg('success', '✓ Configuration saved.');
+                    const sel = document.getElementById('config-provider');
+                    if (sel) sel.dataset.prevProvider = provider;
                 } else {
-                    alert('Error saving configuration');
+                    _showGlobalConfigMsg('error', 'Error saving configuration.');
                 }
             } catch (e) {
                 console.error(e);
-                alert('Error saving configuration');
+                _showGlobalConfigMsg('error', 'Network error saving configuration.');
             }
         }
 

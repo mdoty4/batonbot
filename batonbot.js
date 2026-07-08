@@ -42,6 +42,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const axios = require('axios');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const treeKill = require('tree-kill');
 
@@ -179,6 +180,7 @@ const {
 
 const batonCodeAgent = require('./modules/agents/baton-code');
 const batonCodeThinkingAgent = require('./modules/agents/baton-code-thinking');
+const jiraAdapter = require('./modules/jira-adapter');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -354,6 +356,131 @@ function saveState(state) {
   } catch (err) {
     console.error('Error saving state file:', err);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   v3.3 "Ingress" — Per-project bearer-token helpers
+   ═══════════════════════════════════════════════════════════
+   External systems (webhooks, scripts, agents) drop tasks into a
+   project via `POST /api/projects/:id/ingest`. Each project owns
+   its own secret bearer token so a compromised token only exposes
+   one project's task queue. Tokens are generated once on project
+   creation and can be rotated via PUT /api/projects/:id with
+   { regenerateIngressToken: true }.
+
+   See docs/task-schema.md for the accepted task payload format.
+   ─────────────────────────────────────────────────────────── */
+
+/** Generate a cryptographically-random 256-bit bearer token (hex-encoded). */
+function generateIngressToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Timing-safe token comparison. Using `===` on secrets leaks a bit of
+ * information per character via string-comparison short-circuiting, which
+ * lets an attacker infer the token one byte at a time. crypto.timingSafeEqual
+ * always compares the full buffer.
+ */
+function tokensMatch(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  if (provided.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Express middleware: verify Bearer token against the project's ingressToken.
+ * Backfills a token for legacy projects that predate v3.3, so existing users
+ * can view/rotate their token from the UI without recreating the project.
+ * Returns 401 on missing/invalid token, 404 if project doesn't exist.
+ */
+function verifyIngressToken(req, res, next) {
+  const { id: projectId } = req.params;
+  const state = getState();
+  const project = state.projects.find(p => p.id === projectId);
+
+  if (!project) {
+    return res.status(404).json({ success: false, error: 'Project not found' });
+  }
+
+  // Lazy backfill: legacy projects (pre-v3.3) have no ingressToken. Generate one
+  // now so the project has a stable token going forward. This is a no-op for
+  // projects created via POST /api/projects after v3.3.
+  if (!project.ingressToken) {
+    project.ingressToken = generateIngressToken();
+    saveState(state);
+    console.log(`[INGRESS] Backfilled ingressToken for legacy project ${projectId}`);
+  }
+
+  const authHeader = req.headers['authorization'] || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ success: false, error: 'Missing or malformed Authorization header. Expected: Bearer <token>' });
+  }
+
+  const provided = match[1].trim();
+  if (!tokensMatch(provided, project.ingressToken)) {
+    console.warn(`[INGRESS] Rejected ingest attempt for project ${projectId} — invalid token`);
+    return res.status(401).json({ success: false, error: 'Invalid ingress token' });
+  }
+
+  req.project = project;
+  req.state = state;
+  next();
+}
+
+/**
+ * Normalize and validate a single task payload against the ingress schema.
+ * Returns { ok: true, task } or { ok: false, error }.
+ * See docs/task-schema.md for the full spec.
+ */
+const INGRESS_ALLOWED_AGENTS = ['aider', 'cline', 'baton-code', 'baton-code-thinking', 'telegram'];
+const INGRESS_ALLOWED_STATES = ['pending', 'in_progress', 'done', 'failed', 'stopped'];
+
+function normalizeIngressTask(input, project, existingCount) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'Task must be a JSON object' };
+  }
+
+  const { prompt, agent, state, orchestrate, metadata } = input;
+
+  if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+    return { ok: false, error: 'Task.prompt is required and must be a non-empty string' };
+  }
+
+  if (agent !== undefined && !INGRESS_ALLOWED_AGENTS.includes(agent)) {
+    return { ok: false, error: `Task.agent must be one of: ${INGRESS_ALLOWED_AGENTS.join(', ')}` };
+  }
+
+  if (state !== undefined && !INGRESS_ALLOWED_STATES.includes(state)) {
+    return { ok: false, error: `Task.state must be one of: ${INGRESS_ALLOWED_STATES.join(', ')}` };
+  }
+
+  if (orchestrate !== undefined && typeof orchestrate !== 'boolean') {
+    return { ok: false, error: 'Task.orchestrate must be a boolean' };
+  }
+
+  if (metadata !== undefined && (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata))) {
+    return { ok: false, error: 'Task.metadata must be a JSON object' };
+  }
+
+  const task = {
+    id: existingCount,
+    prompt: prompt.trim(),
+    agent: agent || project.defaultAgent || 'aider',
+    state: state || 'pending',
+    orchestrate: orchestrate === true
+  };
+
+  if (metadata) {
+    task.metadata = metadata;
+  }
+
+  return { ok: true, task };
 }
 
 function resetState() {
@@ -1019,11 +1146,30 @@ function buildBatonCodeAgentEntry(agentConfig) {
     isHttpAgent: agentConfig.isHttpAgent,
     send_message: async (prompt, config, cwd, projectId, taskContext) => {
       const state = getState();
-      const llmConfig = getAiderConfig(projectId);
+      // BUG FIX: getAiderConfig() expects a project OBJECT, not a projectId string.
+      // Passing the string would evaluate `"proj_xxx".aiderConfig` as undefined,
+      // silently falling back to global config (which is often empty) and
+      // producing a misleading "LLM API base URL is required" error even when
+      // the project has an LLM configured. Look up the project first.
+      const project = state.projects.find(p => p.id === projectId);
+      const llmConfig = getAiderConfig(project);
 
-      if (!llmConfig.apiBase || !llmConfig.apiKey) {
-        throw new Error('LLM API base URL and key are required. Configure in Settings.');
+
+      // Empty apiBase → fall back to LM Studio's default, mirroring how the
+      // Cline agent treats an empty apiBase as "use lmstudio". This lets a
+      // user pick "LM Studio" in Global Config (or leave apiBase blank
+      // entirely) and have Baton Code / Baton Code Thinking Just Work
+      // against localhost:1234 with zero manual typing. Remote endpoints
+      // still enforce the apiKey guard.
+      const resolvedApiBase = (llmConfig.apiBase || '').trim() || 'http://localhost:1234/v1';
+      llmConfig.apiBase = resolvedApiBase;
+      {
+        const isLocalLlm = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::|\/|$)/i.test(resolvedApiBase);
+        if (!llmConfig.apiKey && !isLocalLlm) {
+          throw new Error('LLM API key is required for non-local endpoints. Configure in Settings.');
+        }
       }
+
 
       // Generate session ID for persistent log files (same format as Cline/Aider)
       const projectTitle = (state.projects.find(p => p.id === projectId)?.name || projectId).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1036,9 +1182,10 @@ function buildBatonCodeAgentEntry(agentConfig) {
 
       // ── Inject Previous Task Context ──
       // Build structured context from all previously completed tasks in the pipeline
-      // so the new task inherits knowledge about what was done.
-      const project = state.projects.find(p => p.id === projectId);
+      // so the new task inherits knowledge about what was done. Reuses the
+      // `project` variable already resolved above for the getAiderConfig lookup.
       const previousContext = buildPreviousTasksContext(project, taskIndex);
+
 
       let enrichedPrompt = prompt;
       if (previousContext) {
@@ -1523,9 +1670,19 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
         currentProject.tasks[taskIndex].state = agentSucceeded ? 'done' : 'failed';
         currentProject.tasks[taskIndex].completedAt = new Date().toISOString();
         if (!agentSucceeded && agentError) {
-          currentProject.tasks[taskIndex].error = agentError;
+          // v3.4: translate raw connection errors into a friendly card message
+          currentProject.tasks[taskIndex].error = friendlyTaskError(agentError, projectId);
         }
         saveState(currentState);
+
+        // ── v3.4: close the loop back to Jira (no-op unless metadata.source === 'jira').
+        // Fire-and-forget — the adapter's idempotency stamp guarantees exactly
+        // one ✅/❌ comment per run even though the orchestrate loop may also call this.
+        jiraAdapter.commentTaskResult(projectId, taskIndex, {
+          success: agentSucceeded,
+          summary: currentProject.tasks[taskIndex].summary || '',
+          error: currentProject.tasks[taskIndex].error || agentError
+        });
       }
       return Promise.resolve({ success: agentSucceeded, error: agentError });
 
@@ -1538,7 +1695,15 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
       if (currentProject && currentProject.tasks[taskIndex]) {
         currentProject.tasks[taskIndex].state = 'failed';
         currentProject.tasks[taskIndex].completedAt = new Date().toISOString();
+        // v3.4: persist the (friendly) error so the card shows WHY it failed
+        currentProject.tasks[taskIndex].error = friendlyTaskError(err.message, projectId);
         saveState(currentState);
+
+        // v3.4: post the failure back to the Jira ticket (idempotent, best-effort)
+        jiraAdapter.commentTaskResult(projectId, taskIndex, {
+          success: false,
+          error: currentProject.tasks[taskIndex].error
+        });
       }
       return Promise.resolve({ success: false, error: err.message });
     }
@@ -1737,7 +1902,21 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
       completedTask.state = isSuccess ? 'done' : 'failed';
       completedTask.completedAt = new Date().toISOString();
+      if (!isSuccess && !completedTask.error) {
+        // v3.4: give the card SOMETHING more useful than a bare "failed" badge
+        completedTask.error = friendlyTaskError(
+          stderr.trim().split('\n').pop() || `${agent.name} exited with code ${code}`,
+          projectId
+        );
+      }
       saveState(currentState);
+
+      // v3.4: close the loop back to Jira (idempotent no-op for non-Jira tasks)
+      jiraAdapter.commentTaskResult(projectId, taskIndex, {
+        success: isSuccess,
+        summary: completedTask.summary || '',
+        error: completedTask.error || null
+      });
 
       if (isSuccess) {
         console.log(`[EXECUTE] ${agent.name} task ${taskIndex} completed successfully`);
@@ -1767,6 +1946,34 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 }
 
 // --- Agent Orchestration Helpers ---
+
+/**
+ * v3.4 "Trust Hardening" — translate raw agent errors into human-friendly
+ * messages before persisting them on the task card. The single most common
+ * local-model failure is "the LLM endpoint isn't running" (LM Studio closed,
+ * wrong port, etc.), which surfaces as ECONNREFUSED. Without translation the
+ * card just says "connect ECONNREFUSED 127.0.0.1:1234" which confuses users.
+ * The raw error is preserved in parentheses for debugging.
+ */
+function friendlyTaskError(rawError, projectId) {
+  const raw = String(rawError || '').trim();
+  if (!raw) return raw;
+
+  const looksLikeConnRefused = /ECONNREFUSED|connection refused/i.test(raw);
+  if (!looksLikeConnRefused) return raw;
+
+  // Resolve the LLM endpoint this project would have used (same fallback
+  // chain the Baton Code agent uses: project config → global → LM Studio).
+  let apiBase = 'http://localhost:1234/v1';
+  try {
+    const state = getState();
+    const project = state.projects.find(p => p.id === projectId);
+    const cfg = getAiderConfig(project);
+    apiBase = (cfg.apiBase || '').trim() || apiBase;
+  } catch (_) { /* keep default */ }
+
+  return `Couldn't reach the LLM at ${apiBase}. Is LM Studio running? (${raw})`;
+}
 
 function getAiderConfig(project) {
   const state = getState();
@@ -2371,7 +2578,11 @@ app.post('/api/projects', (req, res) => {
     name,
     workingDirectory: workingDirectory || '.',
     tasks: [],
-    aiderConfig: aiderConfig || {}
+    aiderConfig: aiderConfig || {},
+    // ── v3.3 "Ingress" ── per-project bearer token for POST /api/projects/:id/ingest.
+    // Generated once on creation. Users can rotate it via PUT /api/projects/:id
+    // with { regenerateIngressToken: true }.
+    ingressToken: generateIngressToken()
   };
   state.projects.push(newProject);
   if (!state.activeProjectId) state.activeProjectId = newProject.id;
@@ -2381,7 +2592,7 @@ app.post('/api/projects', (req, res) => {
 
 app.put('/api/projects/:id', (req, res) => {
   const { id: projectId } = req.params;
-  const { name, workingDirectory, aiderConfig, defaultAgent } = req.body;
+  const { name, workingDirectory, aiderConfig, defaultAgent, regenerateIngressToken } = req.body;
   console.log(`[PROJECT SCOPE] PUT /api/projects/${projectId} | Updating project: ${name || 'unnamed'}`);
 
   const state = getState();
@@ -2398,8 +2609,220 @@ app.put('/api/projects/:id', (req, res) => {
     project.defaultAgent = defaultAgent;
   }
 
+  // ── v3.4 "Design Partner" ── per-project Jira polling channel config.
+  // Saved wholesale (the UI sends the complete object each time). After save,
+  // syncPollers() starts/stops the background poller to match the new config.
+  let jiraConfigChanged = false;
+  if (req.body.jiraConfig !== undefined) {
+    const incoming = req.body.jiraConfig || {};
+
+    // ── v3.4 "Trust Hardening" — first-run watermark ──
+    // Record WHEN Jira was first enabled for this project. The adapter only
+    // imports tickets created at/after this timestamp, so flipping the toggle
+    // on a mature Jira project doesn't flood the board with years of backlog.
+    // The stamp survives re-saves (we keep the earliest enable time) and is
+    // cleared when the channel is disabled, so a disable→re-enable cycle
+    // starts a fresh watermark.
+    const wasEnabled = !!(project.jiraConfig && project.jiraConfig.enabled);
+    const existingEnabledAt = project.jiraConfig && project.jiraConfig.enabledAt;
+    if (incoming.enabled) {
+      incoming.enabledAt = (wasEnabled && existingEnabledAt)
+        ? existingEnabledAt                 // already enabled: keep original watermark
+        : new Date().toISOString();        // freshly enabled: stamp now
+    } else {
+      delete incoming.enabledAt;           // disabled: next enable gets a new watermark
+    }
+
+    project.jiraConfig = incoming;
+    jiraConfigChanged = true;
+  }
+
+  // ── v3.3 "Ingress" ── rotate the per-project bearer token on demand.
+  // Existing external webhooks with the old token will start returning 401
+  // immediately. This is intentional: token rotation is the recovery path
+  // when a token is suspected of being leaked.
+  if (regenerateIngressToken === true) {
+    project.ingressToken = generateIngressToken();
+    console.log(`[INGRESS] Rotated ingressToken for project ${projectId}`);
+  }
+
   saveState(state);
+
+  // Restart/stop the Jira poller to match the new config (no-op if unchanged).
+  if (jiraConfigChanged) {
+    jiraAdapter.stopPoller(projectId); // force restart to pick up new interval/JQL
+    jiraAdapter.syncPollers();
+  }
+
   res.json({ message: 'Project updated', project, state });
+});
+
+/* ═══════════════════════════════════════════════════════════
+   v3.3 "Ingress" — External task-ingestion API
+   ═══════════════════════════════════════════════════════════
+   See docs/task-schema.md for the payload format.
+   ─────────────────────────────────────────────────────────── */
+
+/**
+ * GET /api/projects/:id/ingress-token
+ * Returns the current bearer token for a project. This endpoint is
+ * intentionally not itself token-protected — anyone who can reach the
+ * BatonBot HTTP server (typically only the local machine) can retrieve
+ * the token. In practice this is used by the browser UI to display the
+ * token for copy/paste. If you want to lock this down further, put
+ * BatonBot behind a reverse proxy that adds session auth.
+ */
+app.get('/api/projects/:id/ingress-token', (req, res) => {
+  const { id: projectId } = req.params;
+  const state = getState();
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  // Lazy backfill for legacy projects (pre-v3.3) — same as verifyIngressToken.
+  if (!project.ingressToken) {
+    project.ingressToken = generateIngressToken();
+    saveState(state);
+    console.log(`[INGRESS] Backfilled ingressToken for legacy project ${projectId} (via GET)`);
+  }
+
+  res.json({
+    projectId,
+    ingressToken: project.ingressToken,
+    endpoint: `/api/projects/${projectId}/ingest`,
+    schemaDoc: '/docs/task-schema.md'
+  });
+});
+
+/**
+ * POST /api/projects/:id/ingest
+ * External task-ingestion endpoint. Accepts either a single task object
+ * or { tasks: [...] } and appends valid tasks to the project's queue.
+ *
+ * Auth: Authorization: Bearer <ingressToken>  (see GET /api/projects/:id/ingress-token)
+ *
+ * Response body:
+ *   { success: true, tasks_created: [...], count: N }
+ *   { success: false, error: "...", rejected?: [...] }
+ *
+ * Broadcasts a `task_ingested` SSE event so the kanban board updates live.
+ */
+app.post('/api/projects/:id/ingest', verifyIngressToken, (req, res) => {
+  const { id: projectId } = req.params;
+  const { project, state } = req;
+
+  // Accept `{ tasks: [...] }` (batch) or `{ prompt, ... }` (single). We deliberately
+  // don't accept a bare array at the top level — that would preclude adding
+  // batch-level metadata fields later (e.g. { idempotencyKey, tasks: [...] }).
+  let payloads;
+  if (Array.isArray(req.body?.tasks)) {
+    payloads = req.body.tasks;
+  } else if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+    payloads = [req.body];
+  } else {
+    return res.status(400).json({
+      success: false,
+      error: 'Body must be a task object { prompt, ... } or a batch { tasks: [...] }. See docs/task-schema.md.'
+    });
+  }
+
+  if (payloads.length === 0) {
+    return res.status(400).json({ success: false, error: 'No tasks provided' });
+  }
+
+  if (payloads.length > 100) {
+    return res.status(400).json({ success: false, error: 'Batch size limit is 100 tasks per request' });
+  }
+
+  // Validate ALL payloads first, then commit as a batch. This is atomic —
+  // either every task in the batch lands, or none do. Prevents the caller
+  // from seeing a half-applied batch when task #7 fails validation.
+  const normalized = [];
+  for (let i = 0; i < payloads.length; i++) {
+    const result = normalizeIngressTask(payloads[i], project, project.tasks.length + normalized.length);
+    if (!result.ok) {
+      return res.status(400).json({
+        success: false,
+        error: `Task ${i}: ${result.error}`,
+        rejectedIndex: i
+      });
+    }
+    normalized.push(result.task);
+  }
+
+  // Commit: append all validated tasks to the project.
+  const startIndex = project.tasks.length;
+  project.tasks.push(...normalized);
+  saveState(state);
+
+  const tasksCreated = normalized.map((t, i) => ({
+    index: startIndex + i,
+    prompt: t.prompt,
+    agent: t.agent,
+    state: t.state,
+    orchestrate: t.orchestrate,
+    ...(t.metadata ? { metadata: t.metadata } : {})
+  }));
+
+  console.log(`[INGRESS] Accepted ${tasksCreated.length} task(s) for project ${projectId} (indices ${startIndex}–${startIndex + tasksCreated.length - 1})`);
+
+  // Broadcast SSE event so any open kanban board updates immediately without
+  // polling. Existing subscribers already listen for `task_start` / `task_done`;
+  // `task_ingested` is a new event type — the board module can listen for it
+  // (or fall back to refetching /api/project/:id/tasks on any unknown event).
+  broadcastEvent(projectId, {
+    type: 'task_ingested',
+    projectId,
+    count: tasksCreated.length,
+    startIndex,
+    tasks: tasksCreated,
+    timestamp: new Date().toISOString()
+  });
+
+  // ── v3.3.1 "Autostart" ──
+  // If the caller sets `autostart: true` at the batch level, kick off
+  // orchestration for the newly-created tasks that are marked `orchestrate:true`.
+  // This is the "fire-and-forget" path: e.g. a Jira webhook that files a
+  // critical bug and wants the agent to start working on it immediately with
+  // no human in the loop. Autostart requires at least one ingested task to
+  // have `orchestrate:true` — otherwise there's nothing eligible to run.
+  //
+  // The actual start is delegated by making an internal HTTP call to the same
+  // /orchestrate endpoint the ▶ button uses, so all the queue/state machine
+  // logic stays in one place.
+  const autostart = req.body && req.body.autostart === true;
+  const autostartIndices = normalized
+    .map((t, i) => ({ t, idx: startIndex + i }))
+    .filter(({ t }) => t.orchestrate === true && t.state !== 'done' && t.state !== 'failed' && t.state !== 'stopped')
+    .map(({ idx }) => idx);
+
+  let autostartResult = null;
+  if (autostart && autostartIndices.length > 0) {
+    try {
+      // Fire an internal POST to /orchestrate. We don't await the full run —
+      // the endpoint returns immediately after kicking things off (execution
+      // is async), so this just triggers it and moves on.
+      const port = req.socket.localPort || process.env.PORT || 3000;
+      axios.post(`http://127.0.0.1:${port}/api/project/${projectId}/tasks/orchestrate`, {
+        taskIndices: autostartIndices
+      }, { timeout: 5000 }).catch(err => {
+        console.error(`[INGRESS] Autostart POST failed for project ${projectId}:`, err.message);
+      });
+      autostartResult = { triggered: true, taskIndices: autostartIndices };
+      console.log(`[INGRESS] Autostart triggered for ${autostartIndices.length} task(s) in project ${projectId}`);
+    } catch (err) {
+      autostartResult = { triggered: false, error: err.message };
+      console.error(`[INGRESS] Autostart failed for project ${projectId}:`, err.message);
+    }
+  } else if (autostart) {
+    autostartResult = { triggered: false, reason: 'No ingested tasks had orchestrate:true' };
+  }
+
+  res.json({
+    success: true,
+    count: tasksCreated.length,
+    tasks_created: tasksCreated,
+    ...(autostartResult ? { autostart: autostartResult } : {})
+  });
 });
 
 app.post('/api/projects/active', (req, res) => {
@@ -2572,7 +2995,21 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
         if (failProject && failProject.tasks[taskIndex]) {
           failProject.tasks[taskIndex].state = 'failed';
           failProject.tasks[taskIndex].completedAt = new Date().toISOString();
+          // v3.4: persist the (friendly) error text on the card — previously this
+          // path set state:'failed' but never stored WHY, so cards showed a bare
+          // red badge with no explanation.
+          if (!failProject.tasks[taskIndex].error) {
+            failProject.tasks[taskIndex].error = friendlyTaskError(errMsg, projectId);
+          }
           saveState(failState);
+
+          // v3.4: post the failure to the Jira ticket. Covers early-failure paths
+          // (isolation block, session guard) that never reach executeAgentTask's
+          // own hook. Idempotent via the adapter's jiraResultCommentedAt stamp.
+          jiraAdapter.commentTaskResult(projectId, taskIndex, {
+            success: false,
+            error: failProject.tasks[taskIndex].error
+          });
         }
 
         broadcastEvent(projectId, { type: 'task_failed', taskIndex, error: errMsg, timestamp: new Date().toISOString() });
@@ -2587,6 +3024,14 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
           doneProject.tasks[taskIndex].state = 'done';
           doneProject.tasks[taskIndex].completedAt = new Date().toISOString();
           saveState(doneState);
+
+          // v3.4: post the completion to the Jira ticket (idempotent — usually a
+          // no-op because executeAgentTask already commented, but this covers
+          // "Already completed" fast-path returns).
+          jiraAdapter.commentTaskResult(projectId, taskIndex, {
+            success: true,
+            summary: doneProject.tasks[taskIndex].summary || ''
+          });
         }
 
         // Broadcast task done event via SSE
@@ -2607,7 +3052,15 @@ app.post('/api/project/:id/tasks/orchestrate', async (req, res) => {
       if (failProject && failProject.tasks[taskIndex]) {
         failProject.tasks[taskIndex].state = 'failed';
         failProject.tasks[taskIndex].completedAt = new Date().toISOString();
+        // v3.4: surface the reason on the card + notify Jira (idempotent)
+        if (!failProject.tasks[taskIndex].error) {
+          failProject.tasks[taskIndex].error = friendlyTaskError(err.message, projectId);
+        }
         saveState(failState);
+        jiraAdapter.commentTaskResult(projectId, taskIndex, {
+          success: false,
+          error: failProject.tasks[taskIndex].error
+        });
       }
 
       // Broadcast task failed event via SSE
@@ -2711,10 +3164,32 @@ app.post('/api/project/:id/tasks/reset', (req, res) => {
   const project = state.projects.find(p => p.id === projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  project.tasks = project.tasks.map(task => ({ ...task, state: 'pending', completedAt: undefined }));
+  // Clear per-run result fields so the UI doesn't keep displaying stale
+  // failure text (e.g. "temperature is deprecated for this model") on a
+  // fresh Play. Explicit `undefined` keys get stripped by JSON.stringify
+  // when saveState() persists to disk.
+  project.tasks = project.tasks.map(task => ({
+    ...task,
+    state: 'pending',
+    completedAt: undefined,
+    summary: undefined,
+    error: undefined,
+    filesCreated: undefined,
+    filesModified: undefined,
+    commandsRun: undefined,
+    iterations: undefined,
+    splitSummary: undefined,
+    planSummary: undefined,
+    keyFindings: undefined,
+    planChecklist: undefined,
+    // v3.4: clear the Jira result-comment idempotency stamp so a re-run of a
+    // Jira-sourced task posts a fresh ✅/❌ comment for the new outcome.
+    ...(task.metadata ? { metadata: { ...task.metadata, jiraResultCommentedAt: undefined } } : {})
+  }));
   saveState(state);
 
   res.json({ message: 'Tasks reset', tasks: project.tasks });
+
 });
 
 app.delete('/api/projects/:id', (req, res) => {
@@ -2875,8 +3350,16 @@ app.post('/api/chat', async (req, res) => {
   const apiKey = llmConfig.apiKey || '';
   const model = llmConfig.model || 'gpt-4o';
 
-  if (!apiBase || !apiKey) {
-    return res.status(400).json({ error: 'LLM API base URL and key are required. Configure in Settings.' });
+  // Allow blank apiKey when apiBase is a local LLM server (LM Studio, Ollama,
+  // llama.cpp, etc.). Remote endpoints still require a key.
+  if (!apiBase) {
+    return res.status(400).json({ error: 'LLM API base URL is required. Configure in Settings.' });
+  }
+  {
+    const isLocalLlm = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::|\/|$)/i.test(apiBase);
+    if (!apiKey && !isLocalLlm) {
+      return res.status(400).json({ error: 'LLM API key is required for non-local endpoints. Configure in Settings.' });
+    }
   }
 
   // System prompts instruct the LLM to wrap existing steps (already written by the user)
@@ -3062,7 +3545,22 @@ app.post('/api/config', (req, res) => {
   const { aiderConfig, telegramConfig } = req.body;
   console.log(`[CONFIG] POST /api/config | Saving config`);
   const state = getState();
-  if (aiderConfig !== undefined) state.aiderConfig = aiderConfig || {};
+  if (aiderConfig !== undefined) {
+    // Normalize: trim strings and backfill LM Studio defaults when the provider
+    // is set to "lmstudio" but the base/key are empty. Belt-and-suspenders with
+    // the UI validation — protects against direct API callers who bypass the
+    // Settings panel.
+    const norm = { ...(aiderConfig || {}) };
+    if (typeof norm.apiBase === 'string') norm.apiBase = norm.apiBase.trim();
+    if (typeof norm.apiKey  === 'string') norm.apiKey  = norm.apiKey.trim();
+    if (typeof norm.model   === 'string') norm.model   = norm.model.trim();
+    if (norm.provider === 'lmstudio') {
+      if (!norm.apiBase) norm.apiBase = 'http://localhost:1234/v1';
+      if (!norm.apiKey)  norm.apiKey  = 'lm-studio';
+    }
+    state.aiderConfig = norm;
+  }
+
   if (telegramConfig !== undefined) state.telegramConfig = telegramConfig || {};
   saveState(state);
   res.json({
@@ -3280,6 +3778,97 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════
+   v3.4 "Design Partner" — Jira polling channel endpoints
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * POST /api/projects/:id/jira/test
+ * Test a Jira connection with the supplied (or saved) config.
+ * Body may carry a candidate jiraConfig (so the UI can test BEFORE saving).
+ */
+app.post('/api/projects/:id/jira/test', async (req, res) => {
+  const { id: projectId } = req.params;
+  const state = getState();
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return res.status(404).json({ ok: false, message: 'Project not found' });
+
+  const candidate = (req.body && Object.keys(req.body).length > 0) ? req.body : (project.jiraConfig || {});
+  const result = await jiraAdapter.testConnection(candidate);
+  res.json(result);
+});
+
+/**
+ * GET /api/projects/:id/jira/status
+ * Poller status for the settings UI (is it running, last poll, last error).
+ */
+app.get('/api/projects/:id/jira/status', (req, res) => {
+  res.json(jiraAdapter.getStatus(req.params.id));
+});
+
+/**
+ * POST /api/projects/:id/jira/poll-now
+ * Manually trigger one poll cycle (the "Sync now" button).
+ */
+app.post('/api/projects/:id/jira/poll-now', async (req, res) => {
+  await jiraAdapter.pollOnce(req.params.id);
+  res.json({ ok: true, status: jiraAdapter.getStatus(req.params.id) });
+});
+
+/**
+ * POST /api/projects/:id/jira/forget-key   { issueKey: "SCRUM-3" }
+ * v3.4 Delete → reimport escape hatch. The board calls this right before
+ * deleting a Jira-sourced card so the issue key is removed from
+ * jiraIngestedKeys — a future sync will re-import the still-open ticket.
+ * Without this, deleting the card made the ticket permanently invisible.
+ */
+app.post('/api/projects/:id/jira/forget-key', (req, res) => {
+  const { id: projectId } = req.params;
+  const issueKey = req.body && req.body.issueKey;
+  if (!issueKey || typeof issueKey !== 'string') {
+    return res.status(400).json({ ok: false, error: 'issueKey is required' });
+  }
+  const removed = jiraAdapter.forgetIngestedKey(projectId, issueKey);
+  res.json({ ok: true, removed });
+});
+
+/**
+ * POST /api/projects/:id/jira/task-event   { taskIndex: 3, event: "to-queue" | "to-pending" }
+ * v3.4 Lifecycle visibility: when a Jira-sourced card is triaged on the board
+ * (moved PENDING↔QUEUE), post a comment on the Jira ticket so the reporter
+ * sees the move without opening BatonBot. Best-effort — never blocks the UI.
+ */
+app.post('/api/projects/:id/jira/task-event', (req, res) => {
+  const { id: projectId } = req.params;
+  const { taskIndex, event } = req.body || {};
+  if (typeof taskIndex !== 'number' || !event) {
+    return res.status(400).json({ ok: false, error: 'taskIndex (number) and event are required' });
+  }
+  const messages = {
+    'to-queue': '📋 BatonBot moved this ticket into the run queue.',
+    'to-pending': '📋 BatonBot moved this ticket back to triage.'
+  };
+  const text = messages[event];
+  if (!text) return res.status(400).json({ ok: false, error: `Unknown event: ${event}` });
+
+  // Fire-and-forget — the adapter is a no-op for non-Jira tasks.
+  jiraAdapter.commentTaskEvent(projectId, taskIndex, text);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+
+  // Boot the Jira pollers for any projects that have jira enabled.
+  // triggerOrchestrate delegates to the same /orchestrate endpoint the ▶
+  // button uses (via internal HTTP) so all sequencing logic stays there.
+  jiraAdapter.init({
+    getState,
+    saveState,
+    broadcastEvent,
+    triggerOrchestrate: (projectId, taskIndices) => {
+      axios.post(`http://127.0.0.1:${PORT}/api/project/${projectId}/tasks/orchestrate`, { taskIndices }, { timeout: 5000 })
+        .catch(err => console.error(`[JIRA] Autostart orchestrate call failed for ${projectId}:`, err.message));
+    }
+  });
 });

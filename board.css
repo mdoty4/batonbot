@@ -720,6 +720,25 @@ body.tab-requirements .context-bar { display: none !important; }
 }
 .card-prompt.empty { color: var(--bb-text-dim); font-style: italic; }
 
+/* v3.4 "Trust Hardening" — failure reason surfaced on the card / detail drawer.
+   Rendered only when task.state === 'failed' and task.error is present. */
+.card-error {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  padding: 5px 8px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+:root[data-theme="light"] .card-error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
 .card-footer {
   display: flex;
   align-items: center;
