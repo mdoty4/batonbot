@@ -343,6 +343,16 @@ To rotate a token (e.g. after suspected leak), send `PUT /api/projects/:id` with
 
 See [`docs/task-schema.md`](docs/task-schema.md) for the full JSON schema, batch format, and example payloads from Telegram / Jira / GitHub / CI sources. Run `./test_ingress.sh` to smoke-test the endpoint end-to-end.
 
+### 🎫 Jira Channel (v3.4)
+
+File a ticket in Jira → BatonBot picks it up, runs an agent on it, and comments the result back on the ticket. BatonBot **polls** Jira Cloud's REST API (outbound HTTPS only — no webhook, no public URL, no tunnel), so it works from any laptop behind any firewall.
+
+- **Label routing:** `fix-now` (or priority Highest) → QUEUE + auto-run; `queue` → QUEUE waiting for ▶; everything else → PENDING for triage.
+- **Trust guards (on by default):** assignee guard (human-assigned tickets are never imported), autostart cap (max 3 auto-runs per poll), first-run watermark (enabling never floods the board with backlog).
+- **Full lifecycle comments back to Jira:** pickup 🤖, queue moves 📋, ✅ completion with summary (ticket auto-transitions to Done), ❌ failure with reason.
+
+Setup takes ~15 minutes — see [`docs/jira-setup.md`](docs/jira-setup.md).
+
 ### Chat & LLM
 
 | Method | Endpoint | Description |
@@ -486,7 +496,7 @@ platform-specific launcher/README generation.
 ## 🗺️ Roadmap
 
 
-See [ROADMAP.md](./ROADMAP.md) for what's coming — v3.2.2 (Windows portable) and v3.2.3 (macOS arm64 portable) have shipped; v3.3 (generic ingress) is next.
+See [ROADMAP.md](./ROADMAP.md) for what's coming — v3.2 (portable bundles), v3.3 (generic ingress), and v3.4 (Jira channel + trust hardening) have shipped; v3.5 (strict local-only mode + results-out) is next.
 
 ---
 

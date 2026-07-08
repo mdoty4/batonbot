@@ -15,10 +15,6 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 - [x] Windows Cline `stdin`-hang bug fixed — Cline now works cleanly on Windows 10/11 (**v3.2.2**)
 - [x] macOS Apple Silicon (arm64) portable variant with `start.command` launcher (**v3.2.3**)
 - [x] README install-first rewrite (portable listed as Option A)
-- [ ] macOS Intel (x64) portable variant
-- [ ] Linux portable variant
-- [ ] 30-second install GIF
-- [ ] Launch announcement post (HN, r/LocalLLaMA, X)
 
 ---
 
@@ -29,8 +25,6 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 - [x] Generic ingress webhook: `POST /api/projects/:id/ingest`
 - [x] Documented JSON Schema for the task format (`docs/task-schema.md`)
 - [x] Per-project bearer-token auth for the ingress endpoint
-- [ ] File-based ingress: drop a `*.task.md` or `*.task.json` in `.batonbot/inbox/`
-- [ ] Manual import UI for one-off bulk imports
 
 ---
 
@@ -57,6 +51,19 @@ BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap
 - [ ] **Strict Local-Only Mode** (`BATONBOT_LOCAL_ONLY=1`) — hard-fail any request that would leave the machine
 - [ ] **Results-Out** — each completed card writes `results/<cardId>.result.json` + `.result.md` into the project's repo
 - [ ] **Previous-task context for Cline/Aider** — chained cards can see what the prior card did
+
+---
+
+## Carried Forward
+
+Items announced in earlier releases that haven't shipped yet. They're still planned — just not committed to a specific release.
+
+- [ ] macOS Intel (x64) portable variant *(from v3.2)*
+- [ ] Linux portable variant *(from v3.2)*
+- [ ] 30-second install GIF *(from v3.2)*
+- [ ] Launch announcement post — HN, r/LocalLLaMA, X *(from v3.2)*
+- [ ] File-based ingress: drop a `*.task.md` or `*.task.json` in `.batonbot/inbox/` *(from v3.3)*
+- [ ] Manual import UI for one-off bulk imports *(from v3.3)*
 
 ---
 
