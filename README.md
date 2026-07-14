@@ -1,3 +1,5 @@
+https://www.batonbot.com
+
 # BatonBot: Visual AI Agent Workflow Orchestrator
 
 BatonBot is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
