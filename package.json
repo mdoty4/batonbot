@@ -1,12 +1,13 @@
 {
-  "name": "batonbot",
+  "name": "taskreaper-core",
+
   "version": "3.4.0",
 
   "description": "Visual AI Agent Workflow Orchestrator - Design, visualize, and execute complex AI pipelines by chaining multiple prompts and agents into repeatable workflows.",
-  "main": "batonbot.js",
+  "main": "taskreaper.js",
   "scripts": {
-    "start": "node batonbot.js",
-    "dev": "npx nodemon batonbot.js",
+    "start": "node taskreaper.js",
+    "dev": "npx nodemon taskreaper.js",
     "build:portable:win": "node scripts/build-portable/build-win.js",
     "build:portable:mac": "node scripts/build-portable/build-mac.js --arch arm64",
     "test": "echo \"Error: no test specified\" && exit 1"

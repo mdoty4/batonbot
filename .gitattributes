@@ -1,5 +1,5 @@
 # Enforce LF line endings across all platforms.
-# Critical for JSONL log files in logs/ — the BatonBot log parser splits on '\n',
+# Critical for JSONL log files in logs/ — the TaskReaper log parser splits on '\n',
 # and CRLF endings introduced by Git on Windows would corrupt log entries.
 * text=auto eol=lf
 

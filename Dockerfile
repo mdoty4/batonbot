@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════
-# BatonBot - Docker Image
+# TaskReaper - Docker Image
 # ═══════════════════════════════════════════════════════════
 # NOTE: This app spawns child processes (cline, aider CLI tools)
 # to execute AI agent tasks. For agent execution to work inside
@@ -37,4 +37,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:4321/health || exit 1
 
 # Start the server
-CMD ["node", "batonbot.js"]
+CMD ["node", "taskreaper.js"]

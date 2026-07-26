@@ -73,7 +73,7 @@ let selectedSessions = new Set();
 
         /* ── Compact timeline renderer ──
          * Display-only. Does NOT change how the backend reads or writes logs.
-         * The completion-detection engine (batonbot.js → appendToClineLog →
+         * The completion-detection engine (taskreaper.js → appendToClineLog →
          * checkClineCompletionAndTriggerNext) inspects events at write time,
          * in memory, and never depends on this function. */
         const TIMELINE_BATCH_SIZE = 200;

@@ -16,7 +16,7 @@ function killTree(child, signal = 'SIGTERM') {
 /* ── LM Studio default fallback ──
    Empty/undefined apiBase values fall back to LM Studio's default endpoint.
    This mirrors how the Cline agent already treats an empty apiBase as
-   "use LM Studio" so that Baton Code / Baton Code Thinking / chat behave
+   "use LM Studio" so that Reaper Code / Reaper Code Thinking / chat behave
    consistently with the same global config. */
 const LM_STUDIO_DEFAULT_URL = 'http://localhost:1234/v1';
 function resolveApiBase(apiBase) {
@@ -26,10 +26,10 @@ function resolveApiBase(apiBase) {
 
 
 /**
- * callLLM — Helper that sends a messages array to the BatonBot /api/chat
+ * callLLM — Helper that sends a messages array to the TaskReaper /api/chat
  * endpoint and returns the full LLM response as a string.
  *
- * Reuses the same OpenAI-compatible API format BatonBot already proxies.
+ * Reuses the same OpenAI-compatible API format TaskReaper already proxies.
  * The /api/chat endpoint handles: reading LLM config (apiBase, apiKey, model),
  * forwarding to the upstream chat/completions endpoint, and streaming back SSE.
  *
@@ -1714,7 +1714,7 @@ async function callLLMForAgent(messages, config = {}) {
   } = config;
 
   // Empty apiBase → fall back to LM Studio's default. Mirrors Cline's implicit
-  // "use lmstudio" behavior so Baton Code / Baton Code Thinking / chat all work
+  // "use lmstudio" behavior so Reaper Code / Reaper Code Thinking / chat all work
   // against the same global config without requiring the user to type a URL.
   const apiBase = resolveApiBase(config.apiBase);
 
@@ -2690,7 +2690,7 @@ function expandFileReferences(prompt, workingDir) {
  * @param {Function} [config.onLog] - Callback for real-time log events (emitted each loop iteration):
  *   { type, timestamp, iteration, ...details }
  *   Event types: 'agent_start', 'llm_response', 'tool_call', 'tool_result', 'agent_end'
- *   Compatible with BatonBot's appendToClineLog event format for UI streaming.
+ *   Compatible with TaskReaper's appendToClineLog event format for UI streaming.
  * @returns {Promise<{success: boolean, filesCreated: string[], commandsRun: string[], error: string|null, summary: string, iterations: number, messages: Array}>}
  */
 async function executeCodingAgent(prompt, workingDir = '', config = {}) {
@@ -2731,7 +2731,7 @@ async function executeCodingAgent(prompt, workingDir = '', config = {}) {
   let checklist = null; // Array of { text: string, status: 'pending' | 'started' | 'done' | 'skipped', note?: string }
 
   // Empty apiBase → fall back to LM Studio's default. Mirrors Cline's implicit
-  // "use lmstudio" behavior so Baton Code / Baton Code Thinking / chat all work
+  // "use lmstudio" behavior so Reaper Code / Reaper Code Thinking / chat all work
   // against the same global config without requiring the user to type a URL.
   const apiBase = resolveApiBase(config.apiBase);
 

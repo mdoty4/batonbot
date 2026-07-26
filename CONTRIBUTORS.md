@@ -2,7 +2,7 @@
 
 ## Primary Author
 
-- **Michael Doty** ([@mdoty4](https://github.com/mdoty4)) — creator and primary author of BatonBot. <michaeldoty.pro@gmail.com>
+- **Michael Doty** ([@mdoty4](https://github.com/mdoty4)) — creator and primary author of TaskReaper. <michaeldoty.pro@gmail.com>
 
 ## Contributing
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /*
- * Build a portable macOS bundle of BatonBot (Apple Silicon / arm64).
+ * Build a portable macOS bundle of TaskReaper (Apple Silicon / arm64).
  *
- * Output: dist/batonbot-portable-mac-arm64/  (and a .zip alongside)
+ * Output: dist/taskreaper-portable-mac-arm64/  (and a .zip alongside)
  *
  * Layout:
- *   batonbot-portable-mac-arm64/
+ *   taskreaper-portable-mac-arm64/
  *     ├── bin/
  *     │    └── node                (pinned Node 20 LTS darwin-arm64)
  *     ├── app/
- *     │    ├── batonbot.js, modules/, index.html, ...
+ *     │    ├── taskreaper.js, modules/, index.html, ...
  *     │    └── node_modules/       (prod-only)
  *     ├── config/                  (empty — first-run seeds prompts.json)
  *     ├── start.command            (double-clickable in Finder)
@@ -42,7 +42,7 @@ if (!['arm64', 'x64'].includes(arch)) {
   process.exit(1);
 }
 
-const BUNDLE_NAME = `batonbot-portable-mac-${arch}`;
+const BUNDLE_NAME = `taskreaper-portable-mac-${arch}`;
 const BUNDLE_DIR = path.join(DIST_ROOT, BUNDLE_NAME);
 const APP_DIR = path.join(BUNDLE_DIR, 'app');
 const BIN_DIR = path.join(BUNDLE_DIR, 'bin');
@@ -80,8 +80,8 @@ async function fetchPinnedNode() {
 function writeStartCommand() {
   // start.command:
   //   - Double-clickable in Finder (opens Terminal).
-  //   - Sets BATONBOT_CONFIG_DIR to the sibling config/ folder.
-  //   - Launches bundled node against app/batonbot.js in the background.
+  //   - Sets TASKREAPER_CONFIG_DIR to the sibling config/ folder.
+  //   - Launches bundled node against app/taskreaper.js in the background.
   //   - Waits for /health, then `open`s the browser.
   //   - `wait`s so Ctrl+C in Terminal cleanly stops the server.
   //
@@ -90,27 +90,27 @@ function writeStartCommand() {
   const content = `#!/bin/bash
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export BATONBOT_CONFIG_DIR="$DIR/config"
+export TASKREAPER_CONFIG_DIR="$DIR/config"
 export PORT="\${PORT:-4321}"
 
-mkdir -p "$BATONBOT_CONFIG_DIR"
+mkdir -p "$TASKREAPER_CONFIG_DIR"
 
 clear
 echo ""
-echo "  BatonBot Portable"
+echo "  TaskReaper Portable"
 echo "  ================="
-echo "  Config dir: $BATONBOT_CONFIG_DIR"
+echo "  Config dir: $TASKREAPER_CONFIG_DIR"
 echo "  Server:     http://localhost:$PORT"
 echo ""
-echo "Starting server (keep this Terminal window open while BatonBot is running)..."
+echo "Starting server (keep this Terminal window open while TaskReaper is running)..."
 echo ""
 
 # Launch the server in the background so we can poll /health and open the browser.
-"$DIR/bin/node" "$DIR/app/batonbot.js" &
+"$DIR/bin/node" "$DIR/app/taskreaper.js" &
 SERVER_PID=$!
 
 # Kill the server if this Terminal window is closed or Ctrl+C is pressed.
-trap 'echo ""; echo "Stopping BatonBot..."; kill $SERVER_PID 2>/dev/null || true; exit 0' INT TERM EXIT
+trap 'echo ""; echo "Stopping TaskReaper..."; kill $SERVER_PID 2>/dev/null || true; exit 0' INT TERM EXIT
 
 # Poll /health for up to 15s, then open the browser.
 OK=0
@@ -129,7 +129,7 @@ else
 fi
 
 echo ""
-echo "Press Ctrl+C to stop BatonBot."
+echo "Press Ctrl+C to stop TaskReaper."
 wait $SERVER_PID
 `;
   const dest = path.join(BUNDLE_DIR, 'start.command');
@@ -138,7 +138,7 @@ wait $SERVER_PID
 }
 
 function writeReadme() {
-  const content = `BatonBot Portable (macOS ${arch === 'arm64' ? 'Apple Silicon' : 'Intel'})
+  const content = `TaskReaper Portable (macOS ${arch === 'arm64' ? 'Apple Silicon' : 'Intel'})
 ============================================================
 
 Quick start

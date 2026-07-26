@@ -756,8 +756,8 @@ function renderPendingRequirements() {
     const AGENT_OPTIONS = [
         { value: 'aider', label: 'Aider' },
         { value: 'cline', label: 'Cline' },
-        { value: 'baton-code', label: 'Baton Code' },
-        { value: 'baton-code-thinking', label: 'Baton Code (Thinking)' },
+        { value: 'baton-code', label: 'Reaper Code' },
+        { value: 'baton-code-thinking', label: 'Reaper Code (Thinking)' },
         { value: 'telegram', label: 'Telegram' }
     ];
 

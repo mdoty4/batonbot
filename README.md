@@ -1,12 +1,10 @@
-https://www.batonbot.com
+# TaskReaper: Visual AI Agent Workflow Orchestrator
 
-# BatonBot: Visual AI Agent Workflow Orchestrator
-
-BatonBot is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
+TaskReaper is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
 
 ## 🚀 Core Concept: From Chatting to Sequencing
 
-Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot moves you to an **assembly line** model:
+Most developers use AI agents (like Cline or Aider) in a linear chat. TaskReaper moves you to an **assembly line** model:
 1.  **Design**: Create a sequence of tasks (prompts).
 2.  **Assign**: Choose the best agent for each specific task.
 3.  **Start Sequence**: Execute the entire pipeline in one click, with real-time status tracking for every step.
@@ -27,13 +25,13 @@ Most developers use AI agents (like Cline or Aider) in a linear chat. BatonBot m
 
 ## 🧭 Platform Support Matrix (v3.2.2)
 
-BatonBot runs on macOS, Linux, and Windows from a single codebase. As of
+TaskReaper runs on macOS, Linux, and Windows from a single codebase. As of
 v3.2.2, all bundled agents work across all three platforms:
 
 | Agent                  | macOS  | Windows | Linux*  |
 |------------------------|--------|---------|---------|
-| Baton Code             | ✅      | ✅       | ✅       |
-| Baton Code (Thinking)  | ✅      | ✅       | ✅       |
+| Reaper Code             | ✅      | ✅       | ✅       |
+| Reaper Code (Thinking)  | ✅      | ✅       | ✅       |
 | Cline                  | ✅      | ✅       | ✅       |
 | Aider                  | ✅      | ✅       | ✅       |
 | Telegram               | ✅      | ✅       | ✅       |
@@ -42,14 +40,14 @@ v3.2.2, all bundled agents work across all three platforms:
 
 **Cline on Windows — fixed in v3.2.2.** Earlier releases (v3.1.x) had a
 silent-hang issue where `cline.cmd` produced no stdout/stderr inside the
-BatonBot child process on Windows. Root cause: Node's default open stdin
+TaskReaper child process on Windows. Root cause: Node's default open stdin
 pipe blocked Cline's first-call init forever. `spawnCompat()` now uses
 `stdio: ['ignore', 'pipe', 'pipe']` (the Node equivalent of `< nul`), and
 Cline runs cleanly on Windows 10/11. See the
-[v3.2.2 release notes](https://github.com/mdoty4/batonbot/releases/tag/v3.2.2)
+[v3.2.2 release notes](https://github.com/mdoty4/taskreaper-core/releases/tag/v3.2.2)
 for the technical write-up.
 
-Regardless of platform, the **Baton Code** and **Baton Code (Thinking)**
+Regardless of platform, the **Reaper Code** and **Reaper Code (Thinking)**
 agents remain the fastest way to get started — they're HTTP-based and
 require no external CLI installation.
 
@@ -58,7 +56,7 @@ require no external CLI installation.
 
 I found myself manually coordinating workflows between LM Studio, coding agents, local models, and scripts. Repeating the same multi-step AI tasks became tedious.
 
-BatonBot is my attempt to turn those workflows into autonomous pipelines that work across both local and cloud-based models.
+TaskReaper is my attempt to turn those workflows into autonomous pipelines that work across both local and cloud-based models.
 
 ---
 
@@ -68,7 +66,7 @@ BatonBot is my attempt to turn those workflows into autonomous pipelines that wo
 - [Quick Start](#quick-start)
 - [Docker Deployment](#docker-deployment)
 - [Configuration](#configuration)
-- [Using BatonBot](#using-batonbot)
+- [Using TaskReaper](#using-taskreaper)
 - [OpenClaw Integration](#openclaw-integration)
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
@@ -83,12 +81,12 @@ Two options: **portable** (no install, download & double-click) or **from source
 
 ### Option A — Portable (no install required)
 
-Download the pre-packaged bundle from the [Releases page](https://github.com/mdoty4/batonbot/releases), unzip, double-click. No Node, no npm, no git required.
+Download the pre-packaged bundle from the [Releases page](https://github.com/mdoty4/taskreaper-core/releases), unzip, double-click. No Node, no npm, no git required.
 
 | Platform          | Bundle                                        | Status         |
 |-------------------|-----------------------------------------------|----------------|
-| Windows x64       | `batonbot-portable-win-x64.zip` → `start.cmd` | ✅ v3.2.2       |
-| macOS Apple Silicon (arm64) | `batonbot-portable-mac-arm64.zip` → `start.command` | ✅ v3.2.3 |
+| Windows x64       | `taskreaper-portable-win-x64.zip` → `start.cmd` | ✅ v3.2.2       |
+| macOS Apple Silicon (arm64) | `taskreaper-portable-mac-arm64.zip` → `start.command` | ✅ v3.2.3 |
 | macOS Intel (x64) | —                                             | Planned         |
 | Linux             | —                                             | Planned         |
 
@@ -107,17 +105,17 @@ All settings, projects, and logs live in a `config/` folder next to the launcher
 - **(Optional) Cline CLI** for Cline agent tasks
 - **(Optional) Aider CLI** for Aider agent tasks
 
-> **Cross-platform**: BatonBot runs on **macOS, Linux, and Windows** from a single codebase. Platform-specific differences (process spawning, child-tree termination) are handled internally via `process.platform` detection — no separate Windows build required.
+> **Cross-platform**: TaskReaper runs on **macOS, Linux, and Windows** from a single codebase. Platform-specific differences (process spawning, child-tree termination) are handled internally via `process.platform` detection — no separate Windows build required.
 
 
 ### Windows-specific notes
 
-BatonBot works natively on Windows 10 / 11 with PowerShell or cmd. A few things to know:
+TaskReaper works natively on Windows 10 / 11 with PowerShell or cmd. A few things to know:
 
-- **Agent CLIs must be on `PATH`.** `cline`, `aider`, and `git` are installed as `.cmd` shims on Windows; BatonBot detects Windows and spawns through `cmd.exe` automatically so the shims resolve correctly.
+- **Agent CLIs must be on `PATH`.** `cline`, `aider`, and `git` are installed as `.cmd` shims on Windows; TaskReaper detects Windows and spawns through `cmd.exe` automatically so the shims resolve correctly.
 - **Creating `.env`**: PowerShell users can run `New-Item .env` or just create the file in VS Code.
 - **`test_api.sh` / `verify_isolation.sh`** are bash scripts — run them from **Git Bash** or **WSL** if you need them. The app itself does not depend on these scripts.
-- **WSL2** is fully supported and recommended if you want the macOS/Linux experience. Inside WSL, BatonBot behaves exactly like it does on Linux.
+- **WSL2** is fully supported and recommended if you want the macOS/Linux experience. Inside WSL, TaskReaper behaves exactly like it does on Linux.
 - **Working directories**: Use forward slashes or escaped backslashes in project working directories (e.g. `C:/Users/you/projects/foo` or `C:\\Users\\you\\projects\\foo`). Node's `path` module handles either form correctly.
 - **Long paths**: If your project is deeply nested, enable Windows long-path support (`git config --system core.longpaths true`) to avoid `ENAMETOOLONG` errors.
 - **Antivirus**: Real-time AV can slow down `npm install` and child-process spawning significantly. Consider whitelisting your project folder if you see sluggish behavior.
@@ -127,8 +125,8 @@ BatonBot works natively on Windows 10 / 11 with PowerShell or cmd. A few things 
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/mdoty4/batonbot.git
-    cd batonbot
+    git clone https://github.com/mdoty4/taskreaper-core.git
+    cd taskreaper
     ```
 
 2.  **Install dependencies**:
@@ -158,7 +156,7 @@ BatonBot works natively on Windows 10 / 11 with PowerShell or cmd. A few things 
 
 ## 🐳 Docker Deployment
 
-Run BatonBot in a container with a single command:
+Run TaskReaper in a container with a single command:
 
 ```bash
 docker compose up --build -d
@@ -200,7 +198,7 @@ docker compose down -v
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `4321` | Port the BatonBot server listens on |
+| `PORT` | `4321` | Port the TaskReaper server listens on |
 | `LM_STUDIO_URL` | `http://localhost:1234/v1` | Base URL for LM Studio API |
 
 ### Agent Configuration
@@ -213,11 +211,11 @@ Configure your agents through the web UI at **Settings**:
 
 ---
 
-## 🎮 Using BatonBot
+## 🎮 Using TaskReaper
 
 ### 1. Setting up your Agent (e.g., Cline)
 
-To route an agent's requests through BatonBot:
+To route an agent's requests through TaskReaper:
 - Set the **API Provider** to `OpenAI Compatible`
 - Set the **Base URL** to `http://localhost:4321/v1`
 
@@ -227,8 +225,8 @@ To route an agent's requests through BatonBot:
 - Open the **Board** (Kanban) view — add cards from the agent palette and drag them between `Pending`, `Queue`, and `Completed` columns; reorder cards within the Queue to set execution order
 - Or use the **Pipeline** editor view to add prompt rows linearly
 - Assign an agent to each card/row. Available agents:
-  - `baton-code` — native BatonBot agent
-  - `baton-code-thinking` — native BatonBot agent with chain-of-thought planning
+  - `baton-code` — native TaskReaper agent
+  - `baton-code-thinking` — native TaskReaper agent with chain-of-thought planning
   - `aider` — external Aider CLI
   - `cline` — external Cline CLI
   - `telegram` — sends the prompt as a Telegram message
@@ -236,20 +234,20 @@ To route an agent's requests through BatonBot:
 
 ### 3. Executing the Sequence
 
-Click **▶ Start Sequence** (or the Play button on the board). BatonBot will execute queued tasks in order, managing the hand-off between agents and emitting live SSE state updates (`pending` → `planning` → `in_progress` → `done` / `failed` / `stopped`). Use **Pause** to stop after the current task settles, or **Cancel** to terminate immediately.
+Click **▶ Start Sequence** (or the Play button on the board). TaskReaper will execute queued tasks in order, managing the hand-off between agents and emitting live SSE state updates (`pending` → `planning` → `in_progress` → `done` / `failed` / `stopped`). Use **Pause** to stop after the current task settles, or **Cancel** to terminate immediately.
 
 ---
 
 ## 🤖 OpenClaw Integration
 
-BatonBot includes a `skill.md` file that allows **OpenClaw** (and other AI agents) to discover and interact with BatonBot automatically. By providing the skill file, OpenClaw can:
+TaskReaper includes a `skill.md` file that allows **OpenClaw** (and other AI agents) to discover and interact with TaskReaper automatically. By providing the skill file, OpenClaw can:
 
-- **Start, stop, and restart** the BatonBot server
+- **Start, stop, and restart** the TaskReaper server
 - **Create and manage** projects and pipelines
 - **Assign agents** and execute orchestration workflows
 - **Troubleshoot** failed pipelines and review session logs
 
-To use with OpenClaw, simply point it to the `skill.md` file in the project root. OpenClaw will use the defined workflows and API endpoints to control BatonBot programmatically.
+To use with OpenClaw, simply point it to the `skill.md` file in the project root. OpenClaw will use the defined workflows and API endpoints to control TaskReaper programmatically.
 
 ---
 
@@ -321,7 +319,7 @@ Base URL: `http://localhost:4321`
 
 ### Ingress (v3.3) — External Task Ingestion
 
-Anything can drop a task into BatonBot — Telegram bots, Jira webhooks, CI pipelines, other agents. Each project has its own bearer token; external callers `POST` a task payload and it lands on the kanban board.
+Anything can drop a task into TaskReaper — Telegram bots, Jira webhooks, CI pipelines, other agents. Each project has its own bearer token; external callers `POST` a task payload and it lands on the kanban board.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -347,7 +345,7 @@ See [`docs/task-schema.md`](docs/task-schema.md) for the full JSON schema, batch
 
 ### 🎫 Jira Channel (v3.4)
 
-File a ticket in Jira → BatonBot picks it up, runs an agent on it, and comments the result back on the ticket. BatonBot **polls** Jira Cloud's REST API (outbound HTTPS only — no webhook, no public URL, no tunnel), so it works from any laptop behind any firewall.
+File a ticket in Jira → TaskReaper picks it up, runs an agent on it, and comments the result back on the ticket. TaskReaper **polls** Jira Cloud's REST API (outbound HTTPS only — no webhook, no public URL, no tunnel), so it works from any laptop behind any firewall.
 
 - **Label routing:** `fix-now` (or priority Highest) → QUEUE + auto-run; `queue` → QUEUE waiting for ▶; everything else → PENDING for triage.
 - **Trust guards (on by default):** assignee guard (human-assigned tickets are never imported), autostart cap (max 3 auto-runs per poll), first-run watermark (enabling never floods the board with backlog).
@@ -397,8 +395,8 @@ Setup takes ~15 minutes — see [`docs/jira-setup.md`](docs/jira-setup.md).
 ## 🗺️ Project Structure
 
 ```
-batonbot/
-├── batonbot.js              # Main server: Express routes, agent orchestration, execution engine
+taskreaper/
+├── taskreaper.js              # Main server: Express routes, agent orchestration, execution engine
 ├── app.js                   # Shared global state + frontend module load order
 ├── skill.md                 # OpenClaw skill file for agent integration
 ├── index.html               # Frontend entry point
@@ -461,7 +459,7 @@ Example: `testbench_cline_task_0_2026-04-27T02-22-13.json`
 
 ## 📦 Building the Portable Bundle
 
-BatonBot can be packaged as a "no-install" portable bundle: a folder containing
+TaskReaper can be packaged as a "no-install" portable bundle: a folder containing
 a pinned Node binary, the app, prod-only `node_modules`, and a
 double-clickable launcher. End users unzip and double-click — no Node, no
 npm, no git required. See [Installation → Portable](#option-a--portable-no-install-required)
@@ -479,12 +477,12 @@ npm run build:portable:mac
 
 Output:
 
-- `dist/batonbot-portable-win-x64/` + `.zip`
-- `dist/batonbot-portable-mac-arm64/` + `.zip`
+- `dist/taskreaper-portable-win-x64/` + `.zip`
+- `dist/taskreaper-portable-mac-arm64/` + `.zip`
 
 The bundled app reads/writes all mutable state (`prompts.json`, `logs/`, `.env`)
 from the `config/` folder next to the launcher, controlled by the
-`BATONBOT_CONFIG_DIR` env var. Existing dev workflows (`npm start` from the
+`TASKREAPER_CONFIG_DIR` env var. Existing dev workflows (`npm start` from the
 repo) continue to use `./prompts.json` and `./logs/` as before — the var
 defaults to `__dirname` when unset.
 

@@ -1,6 +1,6 @@
-# BatonBot Task JSON Schema
+# TaskReaper Task JSON Schema
 
-This document defines the canonical task format for the BatonBot ingress API. Any external system (webhook, script, agent, CI pipeline) can use this schema to create tasks in BatonBot projects.
+This document defines the canonical task format for the TaskReaper ingress API. Any external system (webhook, script, agent, CI pipeline) can use this schema to create tasks in TaskReaper projects.
 
 ## Quick Reference
 
@@ -23,7 +23,7 @@ This document defines the canonical task format for the BatonBot ingress API. An
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "BatonBot Task",
+  "title": "TaskReaper Task",
   "type": "object",
   "required": ["prompt"],
   "properties": {
@@ -51,7 +51,7 @@ This document defines the canonical task format for the BatonBot ingress API. An
     "metadata": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Optional custom key-value pairs for tracking task origin, priority, labels, or any other context. Not consumed by BatonBot core - available for external tooling."
+      "description": "Optional custom key-value pairs for tracking task origin, priority, labels, or any other context. Not consumed by TaskReaper core - available for external tooling."
     }
   },
   "additionalProperties": false
@@ -75,8 +75,8 @@ Which AI coding agent should handle this task.
 |-------|-------------|
 | `aider` | Aider - AI pair programming in terminal |
 | `cline` | Cline - AI coding agent |
-| `baton-code` | Baton Code - built-in lightweight agent |
-| `baton-code-thinking` | Baton Code Thinking - reasoning-focused variant |
+| `baton-code` | Reaper Code - built-in lightweight agent |
+| `baton-code-thinking` | Reaper Code Thinking - reasoning-focused variant |
 
 If omitted, uses the project's default agent configuration.
 

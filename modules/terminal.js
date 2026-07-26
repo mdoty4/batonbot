@@ -5,7 +5,7 @@
    pending a rewrite. The backend infrastructure that powered it is still
    fully intact and in active use by other modules:
 
-     • SSE endpoint  : GET /api/project/:id/tasks/stream  (batonbot.js)
+     • SSE endpoint  : GET /api/project/:id/tasks/stream  (taskreaper.js)
                        — broadcasts orchestration_start, task_start,
                          task_done, stdout, tool_use, file_created, etc.
                        — still consumed by modules/board.js to drive the

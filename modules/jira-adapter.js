@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
-   Jira Adapter — polling-based Jira → BatonBot ingress channel
+   Jira Adapter — polling-based Jira → TaskReaper ingress channel
    ═══════════════════════════════════════════════════════════
    v3.4 "Design Partner" — lets a team file bugs in Jira and have
-   them appear (and optionally auto-run) on the BatonBot board,
-   with NO public URL required. BatonBot polls Jira Cloud's REST
+   them appear (and optionally auto-run) on the TaskReaper board,
+   with NO public URL required. TaskReaper polls Jira Cloud's REST
    API on an interval (outbound HTTPS only), so it works from any
    laptop behind any NAT/firewall.
 
@@ -41,7 +41,7 @@
 
 const axios = require('axios');
 
-// Injected by init() so this module stays decoupled from batonbot.js internals.
+// Injected by init() so this module stays decoupled from taskreaper.js internals.
 let deps = {
   getState: null,          // () => state object
   saveState: null,         // (state) => void
@@ -76,7 +76,7 @@ function adfToText(node) {
   return out;
 }
 
-/* ── Build the BatonBot task from a Jira issue ─────────────── */
+/* ── Build the TaskReaper task from a Jira issue ─────────────── */
 function issueToTask(issue, jiraConfig, existingCount) {
   const fields = issue.fields || {};
   const key = issue.key;
@@ -396,7 +396,7 @@ async function pollOnce(projectId) {
         : c.autostart
           ? 'and started working on it immediately'
           : 'and added it to the triage board';
-      postComment(jiraConfig, c.issueKey, `🤖 BatonBot picked up this ticket ${bucket}. (Task #${c.index})`);
+      postComment(jiraConfig, c.issueKey, `🤖 TaskReaper picked up this ticket ${bucket}. (Task #${c.index})`);
     }
 
     // Fire-and-forget lane
@@ -455,9 +455,9 @@ function syncPollers() {
 }
 
 /* ── v3.4 Result comments: close the loop back to Jira ─────────
-   Called by batonbot.js when a task reaches a terminal state
+   Called by taskreaper.js when a task reaches a terminal state
    (done/failed) — and on queue moves — so the person who filed the
-   ticket sees the outcome without opening BatonBot.
+   ticket sees the outcome without opening TaskReaper.
 
    Idempotency: terminal-result comments stamp
    task.metadata.jiraResultCommentedAt. Both the orchestrate loop and
@@ -495,16 +495,16 @@ async function commentTaskResult(projectId, taskIndex, result) {
     const issueKey = task.metadata.issueKey;
     let text;
     if (result.success) {
-      text = `✅ BatonBot completed this.` + (result.summary ? ` ${result.summary}` : '');
+      text = `✅ TaskReaper completed this.` + (result.summary ? ` ${result.summary}` : '');
     } else {
-      text = `❌ BatonBot couldn't complete this: ${result.error || 'unknown error'}`;
+      text = `❌ TaskReaper couldn't complete this: ${result.error || 'unknown error'}`;
     }
     await postComment(project.jiraConfig, issueKey, text);
     console.log(`[JIRA] Posted ${result.success ? 'completion' : 'failure'} comment on ${issueKey} (task #${taskIndex})`);
 
     // ── v3.4.1: auto-transition the ticket to Done on success ──
     // Default ON (transitionOnDone must be explicitly false to disable) —
-    // it's the behavior reporters expect: BatonBot finished, ticket moves.
+    // it's the behavior reporters expect: TaskReaper finished, ticket moves.
     // Failed tasks stay put; the ❌ comment explains why. Piggybacks on the
     // same idempotency stamp as the comment, so this fires once per run.
     if (result.success && project.jiraConfig.transitionOnDone !== false) {

@@ -1,21 +1,21 @@
 ---
-name: batonbot
+name: taskreaper
 description: >-
-  Interact with BatonBot, the visual AI agent workflow orchestrator.
-  Use when Michael asks about: starting or stopping the BatonBot server,
+  Interact with TaskReaper, the visual AI agent workflow orchestrator.
+  Use when Michael asks about: starting or stopping the TaskReaper server,
   managing projects or tasks, creating pipelines, assigning agents (Cline/Aider),
-  checking API endpoints, configuring BatonBot via .env or web UI,
+  checking API endpoints, configuring TaskReaper via .env or web UI,
   troubleshooting pipeline execution, or anything related to multi-agent
   orchestration and hybrid LLM routing.
 ---
 
-# BatonBot Skill
+# TaskReaper Skill
 
 ## Quick Reference
 
 | Detail | Value |
 |--------|-------|
-| **Project Root** | `/Users/michaeldoty/code/batonbot_open/dev/batonbot` |
+| **Project Root** | `/Users/michaeldoty/code/taskreaper_open/dev/taskreaper` |
 | **Local Port** | `4321` |
 | **Web UI** | `http://localhost:4321` |
 | **API Base** | `http://localhost:4321/api` |
@@ -181,7 +181,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
    curl http://localhost:4321/health
    ```
 
-2. **Create a project** (set `workingDirectory` to the target project, never the BatonBot dir itself):
+2. **Create a project** (set `workingDirectory` to the target project, never the TaskReaper dir itself):
    ```bash
    curl -X POST http://localhost:4321/api/projects \
      -H "Content-Type: application/json" \
@@ -228,7 +228,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 4. **Check for common issues:**
    - Port conflict: `lsof -i :4321`
    - Invalid LLM API keys in Settings
-    - Working directory points to BatonBot itself (blocked by safety check)
+    - Working directory points to TaskReaper itself (blocked by safety check)
    - Cline/Aider CLI not installed or not in PATH
 
 5. **Reset tasks and retry:**
@@ -247,7 +247,7 @@ curl -X POST http://localhost:4321/api/project/:id/tasks/orchestrate \
 
 ## Supported Agents
 
-The agent registry in `batonbot.js` exposes five routable agents. Use the `agent` string exactly as shown when assigning tasks via the API.
+The agent registry in `taskreaper.js` exposes five routable agents. Use the `agent` string exactly as shown when assigning tasks via the API.
 
 | Agent ID | Type | How it runs |
 |----------|------|-------------|
@@ -284,9 +284,9 @@ pending | planning | in_progress | done | failed | stopped
 ## File Structure
 
 ```
-batonbot/
+taskreaper/
 ├── .env                       # Environment variables (PORT, LM_STUDIO_URL)
-├── batonbot.js                # Main server: Express routes, orchestration engine
+├── taskreaper.js                # Main server: Express routes, orchestration engine
 ├── prompts.json               # Project state, tasks, agent config, execution state
 ├── prompts.json.example       # Template for initial state (copy to prompts.json)
 ├── app.js                     # Shared global state + frontend module load order
@@ -329,9 +329,9 @@ batonbot/
 |---------|-----|
 | **Port 4321 already in use** | `lsof -ti :4321 \| xargs kill` then restart |
 | **Agent fails silently** | Check LLM API keys in Settings; verify CLI is in PATH |
-| **Working directory blocked** | BatonBot prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `batonbot` itself |
+| **Working directory blocked** | TaskReaper prevents agents from editing its own code. Set `workingDirectory` to a sibling/child directory, never `taskreaper` itself |
 | **Tasks don't auto-chain** | Only tasks with `orchestrate: true` auto-trigger the next task. Manual "Send" clicks do not chain |
-| **Cline edits files after completion** | BatonBot uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
+| **Cline edits files after completion** | TaskReaper uses a quiet-period detector (5s) to wait for file activity to settle before triggering the next task |
 | **Server not responding** | Check `npm start` output for errors; verify `.env` has correct `PORT` |
 
 ---
@@ -340,7 +340,7 @@ batonbot/
 
 ```bash
 # Navigate to project
-cd /Users/michaeldoty/code/batonbot_open/dev/batonbot
+cd /Users/michaeldoty/code/taskreaper_open/dev/taskreaper
 
 # Start server
 npm start

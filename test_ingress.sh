@@ -12,10 +12,10 @@
 
 set -e
 
-BASE_URL="${BATONBOT_URL:-http://localhost:3000}"
+BASE_URL="${TASKREAPER_URL:-http://localhost:3000}"
 PROJECT_ID="${1:-}"
 
-echo "── BatonBot Ingress Test ──"
+echo "── TaskReaper Ingress Test ──"
 echo "  Server: $BASE_URL"
 
 # Discover projectId if not supplied
@@ -134,4 +134,4 @@ echo "  Project now has $TASK_COUNT total tasks."
 
 echo
 echo "🎉 All ingress tests passed!"
-echo "   Open the BatonBot UI and check the '$PROJECT_ID' project's kanban board."
+echo "   Open the TaskReaper UI and check the '$PROJECT_ID' project's kanban board."
