@@ -11,7 +11,7 @@ const DIST_ROOT = path.join(REPO_ROOT, 'dist');
 const CACHE_DIR = path.join(REPO_ROOT, '.build-cache');
 
 const APP_FILES = [
-  'taskreaper.js',
+  'batonbot.js',
   'index.html',
   'styles.css',
   'board.css',

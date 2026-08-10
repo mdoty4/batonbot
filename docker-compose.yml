@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  taskreaper:
+  batonbot:
     build: .
-    container_name: taskreaper
+    container_name: batonbot
     ports:
       - "4321:4321"
     env_file:

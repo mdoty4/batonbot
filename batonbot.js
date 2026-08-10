@@ -4,43 +4,31 @@ const path = require('path');
 /* ═══════════════════════════════════════════════════════════
    Config directory resolution (v3.2 "Portable")
    ═══════════════════════════════════════════════════════════
-   TaskReaper stores three kinds of mutable state on disk:
+   BatonBot stores three kinds of mutable state on disk:
      • prompts.json    — projects, tasks, settings
      • logs/*.json     — per-agent session transcripts
      • .env            — PORT, LM_STUDIO_URL, optional overrides
 
-   Historically these all lived next to taskreaper.js (the repo root).
+   Historically these all lived next to batonbot.js (the repo root).
    For the portable ZIP build, the app code is read-only inside an
    `app/` folder and the user's data must live in a sibling `config/`
    folder so the bundle stays self-contained and deleting the folder
    cleanly uninstalls everything.
 
    Resolution order:
-     1. TASKREAPER_CONFIG_DIR env var (set by start.cmd / start.sh).
+     1. BATONBOT_CONFIG_DIR env var (set by start.cmd / start.sh).
      2. __dirname (legacy behavior — existing dev workflow unchanged).
 
    Static assets (index.html, modules/, styles.css) are app code,
    NOT config, and continue to be served from __dirname.
    ─────────────────────────────────────────────────────────── */
 const CONFIG_DIR = (() => {
-  // BATONBOT_CONFIG_DIR is the pre-rename name. Existing portable bundles
-  // ship a start.cmd / start.command that sets it, so honor it as a fallback
-  // rather than silently relocating a user's data on upgrade.
-  const fromEnv = process.env.TASKREAPER_CONFIG_DIR || process.env.BATONBOT_CONFIG_DIR;
+  const fromEnv = process.env.BATONBOT_CONFIG_DIR;
   if (fromEnv && fromEnv.trim()) {
     return path.resolve(fromEnv.trim());
   }
   return __dirname;
 })();
-
-/**
- * Read an env flag under its current name, falling back to the pre-rename
- * BATONBOT_* name. Lets existing shell profiles and launchers keep working.
- */
-function envFlag(name) {
-  return process.env[`TASKREAPER_${name}`] ?? process.env[`BATONBOT_${name}`];
-}
-
 
 // Ensure the config dir exists before dotenv runs.
 if (!fs.existsSync(CONFIG_DIR)) {
@@ -62,7 +50,7 @@ const treeKill = require('tree-kill');
 /* ═══════════════════════════════════════════════════════════
    Cross-platform helpers
    ═══════════════════════════════════════════════════════════
-   TaskReaper is a single codebase that runs on macOS, Linux, and
+   BatonBot is a single codebase that runs on macOS, Linux, and
    Windows. Platform-specific differences are isolated here so
    the rest of the code stays OS-agnostic.
    ─────────────────────────────────────────────────────────── */
@@ -122,7 +110,7 @@ function spawnCompat(command, args, opts = {}) {
   //
   // This applies to BOTH Windows and POSIX — there's no downside to
   // ignoring stdin for tools that don't read it, and macOS Cline can hit
-  // the same trap if a user runs TaskReaper through a launcher (like
+  // the same trap if a user runs BatonBot through a launcher (like
   // `start.cmd` or a detached double-click) where stdin is not a TTY.
   const defaultStdio = ['ignore', 'pipe', 'pipe'];
 
@@ -193,8 +181,6 @@ const {
 const batonCodeAgent = require('./modules/agents/baton-code');
 const batonCodeThinkingAgent = require('./modules/agents/baton-code-thinking');
 const jiraAdapter = require('./modules/jira-adapter');
-const baton = require('./modules/baton');
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -208,7 +194,7 @@ if (!fs.existsSync(logsDir)) {
 /* ── First-run shim ────────────────────────────────────────────────
    For portable bundle users, the unzipped `config/` dir is empty on
    first launch. Seed it from `prompts.json.example` (shipped next to
-   taskreaper.js) so the UI has somewhere to read/write state.
+   batonbot.js) so the UI has somewhere to read/write state.
    ────────────────────────────────────────────────────────────────── */
 (function seedConfigOnFirstRun() {
   try {
@@ -976,9 +962,9 @@ app.get('/health', (req, res) => {
 // ── Working Directory Safety ─────────────────────────────────────────
 
 /**
- * Resolve a working directory path and validate it is NOT the TaskReaper directory
+ * Resolve a working directory path and validate it is NOT the BatonBot directory
  * or any parent of it. This prevents an agent from accidentally modifying
- * TaskReaper's own codebase (index.js, prompts.json, modules/, etc.).
+ * BatonBot's own codebase (index.js, prompts.json, modules/, etc.).
  *
  * @param {string} cwd - The working directory (may be relative)
  * @param {string} projectId - Project ID for logging context
@@ -986,29 +972,29 @@ app.get('/health', (req, res) => {
  */
 function validateWorkingDirectory(cwd, projectId) {
   const resolved = path.resolve(cwd);
-  const taskreaperDir = path.resolve(__dirname);
+  const batonbotDir = path.resolve(__dirname);
 
-  // Fall back to '.' resolves to TaskReaper's own directory - log a warning
+  // Fall back to '.' resolves to BatonBot's own directory - log a warning
   if (cwd === '.' || cwd === '') {
-    console.warn(`[ISOLATION] Project ${projectId} has no explicit workingDirectory - defaulting to '.' which resolves to the TaskReaper directory (${taskreaperDir}). Agent will run here, which may corrupt TaskReaper files.`);
+    console.warn(`[ISOLATION] Project ${projectId} has no explicit workingDirectory - defaulting to '.' which resolves to the BatonBot directory (${batonbotDir}). Agent will run here, which may corrupt BatonBot files.`);
   }
 
-  // Block if the resolved path IS the TaskReaper directory
-  if (resolved === taskreaperDir) {
+  // Block if the resolved path IS the BatonBot directory
+  if (resolved === batonbotDir) {
     return {
       cwd: resolved,
       safe: false,
-      reason: `Working directory (${resolved}) is the TaskReaper directory itself. Refusing to run agent to prevent self-corruption.`
+      reason: `Working directory (${resolved}) is the BatonBot directory itself. Refusing to run agent to prevent self-corruption.`
     };
   }
 
-  // Block if the resolved path is a PARENT of the TaskReaper directory
-  // (e.g., /Users/michaeldoty/dev/preprod contains taskreaper)
-  if (taskreaperDir.startsWith(resolved + path.sep) || taskreaperDir.startsWith(resolved + '/')) {
+  // Block if the resolved path is a PARENT of the BatonBot directory
+  // (e.g., /Users/michaeldoty/dev/preprod contains batonbot)
+  if (batonbotDir.startsWith(resolved + path.sep) || batonbotDir.startsWith(resolved + '/')) {
     return {
       cwd: resolved,
       safe: false,
-      reason: `Working directory (${resolved}) is a parent of the TaskReaper directory. Refusing to run agent to prevent accidental edits to TaskReaper files.`
+      reason: `Working directory (${resolved}) is a parent of the BatonBot directory. Refusing to run agent to prevent accidental edits to BatonBot files.`
     };
   }
 
@@ -1079,11 +1065,79 @@ function buildEnv(agentName, config) {
   );
 }
 
-/* ── Task-to-task context handoff ──────────────────────────────────
-   The relay logic (pack / pass / receive / carry) lives in
-   modules/baton.js. See the header comment there for why it's still
-   called the baton. ─────────────────────────────────────────────── */
+/**
+ * Build structured context from all previously completed tasks in the pipeline.
+ * Returns a markdown string with summaries of completed tasks, or null if none.
+ */
+function buildPreviousTasksContext(project, currentTaskIndex) {
+  if (!project || !project.tasks) return null;
 
+  const completedTasks = [];
+
+  for (let i = 0; i < currentTaskIndex; i++) {
+    const task = project.tasks[i];
+    if (task && task.state === 'done') {
+      completedTasks.push({
+        index: i,
+        prompt: task.prompt,
+        summary: task.summary || '(no summary)',
+        filesCreated: task.filesCreated || [],
+        filesModified: task.filesModified || [],
+        commandsRun: task.commandsRun || []
+      });
+    }
+  }
+
+  if (completedTasks.length === 0) return null;
+
+  const parts = ['# Completed Previous Tasks', ''];
+  for (const t of completedTasks) {
+    parts.push(`## Task ${t.index}: ${t.prompt}`);
+    parts.push('');
+    parts.push(`**Summary:** ${t.summary}`);
+    if (t.filesCreated.length > 0) {
+      parts.push(`**Files created:** ${t.filesCreated.join(', ')}`);
+    }
+    if (t.filesModified.length > 0) {
+      parts.push(`**Files modified:** ${t.filesModified.join(', ')}`);
+    }
+    if (t.commandsRun.length > 0) {
+      parts.push(`**Commands run:** ${t.commandsRun.join(', ')}`);
+    }
+    parts.push('');
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build a structured task summary from the executeCodingAgent result.
+ */
+function buildTaskSummary(result, taskIndex, projectId, filesModified) {
+  return {
+    summary: result.summary || '',
+    iterations: result.iterations || 0,
+    filesCreated: result.filesCreated || [],
+    filesModified: filesModified || [],
+    commandsRun: result.commandsRun || [],
+    success: result.success !== false,
+    error: result.error || null,
+    completedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Persist a structured task summary into the project state.
+ */
+function persistTaskSummary(projectId, taskIndex, taskSummary) {
+  const state = getState();
+  const project = state.projects.find(p => p.id === projectId);
+  if (project && project.tasks[taskIndex]) {
+    Object.assign(project.tasks[taskIndex], taskSummary);
+    saveState(state);
+    console.log(`[BATON-CODE] Persisted task summary for task ${taskIndex}: ${taskSummary.summary?.slice(0, 80) || '(empty)'}...`);
+  }
+}
 
 // Helper to build a baton-code agent registry entry from a config module
 function buildBatonCodeAgentEntry(agentConfig) {
@@ -1104,7 +1158,7 @@ function buildBatonCodeAgentEntry(agentConfig) {
       // Empty apiBase → fall back to LM Studio's default, mirroring how the
       // Cline agent treats an empty apiBase as "use lmstudio". This lets a
       // user pick "LM Studio" in Global Config (or leave apiBase blank
-      // entirely) and have Reaper Code / Reaper Code Thinking Just Work
+      // entirely) and have Baton Code / Baton Code Thinking Just Work
       // against localhost:1234 with zero manual typing. Remote endpoints
       // still enforce the apiKey guard.
       const resolvedApiBase = (llmConfig.apiBase || '').trim() || 'http://localhost:1234/v1';
@@ -1126,13 +1180,26 @@ function buildBatonCodeAgentEntry(agentConfig) {
       // Track files modified via replace_in_file calls during this session
       const filesModified = [];
 
-      // ── Pick up the baton ──
-      // Collect what every completed task ahead of this one handed forward,
-      // and prepend it to the prompt so this task inherits their knowledge.
-      // Reuses the `project` already resolved above for the getAiderConfig lookup.
-      const inheritedBaton = baton.receive(project, taskIndex);
-      const enrichedPrompt = baton.carry(inheritedBaton, prompt, taskIndex);
+      // ── Inject Previous Task Context ──
+      // Build structured context from all previously completed tasks in the pipeline
+      // so the new task inherits knowledge about what was done. Reuses the
+      // `project` variable already resolved above for the getAiderConfig lookup.
+      const previousContext = buildPreviousTasksContext(project, taskIndex);
 
+
+      let enrichedPrompt = prompt;
+      if (previousContext) {
+        enrichedPrompt = `The context below was automatically inherited from previous tasks in this pipeline. Review it during your planning phase to understand the current state of the codebase.
+
+${previousContext}
+
+---
+
+${prompt}`;
+        console.log(`[BATON-CODE] Injected previous tasks context (${previousContext.length} chars) into task ${taskIndex}`);
+      } else {
+        console.log(`[BATON-CODE] No previous task context to inject for task ${taskIndex}`);
+      }
 
       // Write session_start event
       appendToClineLog(sessionId, {
@@ -1164,7 +1231,7 @@ function buildBatonCodeAgentEntry(agentConfig) {
               iteration: event.iteration,
             };
 
-            // Map Reaper Code agent events to log-friendly formats
+            // Map Baton Code agent events to log-friendly formats
             if (event.type === 'agent_start') {
               logEntry.prompt = event.prompt;
               logEntry.workingDir = event.workingDir;
@@ -1328,9 +1395,8 @@ function buildBatonCodeAgentEntry(agentConfig) {
         error: result.error || null
       });
 
-      // Pack the baton this task hands to whoever runs next
-      const outgoingBaton = baton.pack(result, filesModified);
-
+      // Build structured task summary from the agent result
+      const taskSummary = buildTaskSummary(result, taskIndex, projectId, filesModified);
 
       // Handle context overflow: inject spawned tasks before returning
       if (result.overflow && taskContext) {
@@ -1341,9 +1407,8 @@ function buildBatonCodeAgentEntry(agentConfig) {
           const currentState = getState();
           const project = currentState.projects.find(p => p.id === projectId);
           if (project) {
-            // Drop the baton onto the original task before marking it done
-            Object.assign(project.tasks[taskIndex], outgoingBaton);
-
+            // Persist structured summary on the original task before marking done
+            Object.assign(project.tasks[taskIndex], taskSummary);
             project.tasks[taskIndex].state = 'done';
             project.tasks[taskIndex].splitSummary = result.summary || 'Task split due to context limits';
 
@@ -1358,10 +1423,9 @@ function buildBatonCodeAgentEntry(agentConfig) {
           }
         }
       } else {
-        // Normal (non-overflow) success path: hand the baton forward
-        baton.pass(projectId, taskIndex, outgoingBaton);
+        // Normal (non-overflow) success path: persist structured summary
+        persistTaskSummary(projectId, taskIndex, taskSummary);
       }
-
 
       // Propagate the agent's actual success/error to the caller so the
       // orchestrator (executeAgentTask → triggerAgentSingle) can mark the
@@ -1436,12 +1500,11 @@ const AGENT_REGISTRY = {
       // (handled in getEnv below). For LM Studio we don't pass `-P` so Cline
       // uses its default provider lookup.
       //
-      // Escape hatch (`TASKREAPER_NO_AUTO_AUTH=1`) still skips both `-P` and
+      // Escape hatch (`BATONBOT_NO_AUTO_AUTH=1`) still skips both `-P` and
       // any env-var injection so power-users with custom `cline auth` setups
-      // can opt out of TaskReaper's involvement entirely.
+      // can opt out of BatonBot's involvement entirely.
       const args = ['--json', '-y'];
-      const SKIP_INJECTION = envFlag('NO_AUTO_AUTH') === '1';
-
+      const SKIP_INJECTION = process.env.BATONBOT_NO_AUTO_AUTH === '1';
 
       if (!SKIP_INJECTION && (config.apiBase || config.model)) {
         if (!config.model) {
@@ -1572,7 +1635,7 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   console.log(`[EXECUTE] Starting ${agent.name} for project ${projectId}, task ${taskIndex}: "${task.prompt}"`);
 
-  // ── HTTP-based agents: no child process (Telegram, Reaper Code, etc.) ──
+  // ── HTTP-based agents: no child process (Telegram, Baton Code, etc.) ──
   if (agent.isHttpAgent) {
     activeSessions.set(taskIndex, { sessionId, projectId, spawnTime: Date.now(), child: null });
 
@@ -1584,11 +1647,11 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
         const telegramConfig = state.telegramConfig || {};
         result = await agent.send_message(task.prompt, telegramConfig);
       } else {
-        // Reaper Code: send_message(prompt, config, cwd, projectId, taskContext)
+        // Baton Code: send_message(prompt, config, cwd, projectId, taskContext)
         result = await agent.send_message(task.prompt, {}, cwd, projectId, { taskIndex, agentName });
       }
 
-      // ── Honor the agent's reported success. Reaper Code returns
+      // ── Honor the agent's reported success. Baton Code returns
       // { success: false, error } when the LLM call or tool loop failed;
       // Telegram only throws on failure, so its result is always success. ──
       const agentSucceeded = result?.success !== false;
@@ -1648,11 +1711,11 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
 
   const cmdObj = agent.getCommand(task.prompt, config, taskIndex);
   
-  // Strip TaskReaper-specific env vars to prevent child apps from inheriting our configuration.
-  // - PORT: When Cline runs `npm run dev`, the child app inherits PORT=4321 (the taskreaper's port),
+  // Strip BatonBot-specific env vars to prevent child apps from inheriting our configuration.
+  // - PORT: When Cline runs `npm run dev`, the child app inherits PORT=4321 (the batonbot's port),
   //   causing it to try binding to the same port, resulting in EADDRINUSE crashes.
-  // - LM_STUDIO_URL: Prevents child projects from accidentally using TaskReaper's AI backend config.
-  const { PORT: _taskreaperPort, LM_STUDIO_URL: _lmStudioUrl, ...inheritedEnv } = process.env;
+  // - LM_STUDIO_URL: Prevents child projects from accidentally using BatonBot's AI backend config.
+  const { PORT: _batonbotPort, LM_STUDIO_URL: _lmStudioUrl, ...inheritedEnv } = process.env;
   const env = { ...inheritedEnv, ...agent.getEnv(config) };
 
   // Log session start if it's Cline (maintaining existing behavior)
@@ -1704,11 +1767,11 @@ async function executeAgentTask(projectId, taskIndex, cwd, task) {
   // If the child emits zero stdout AND zero stderr within STALL_TIMEOUT_MS,
   // surface a clear advisory. Common causes: hung initialization, slow
   // shared-folder cwd, or interactive prompt we can't see. Without this,
-  // TaskReaper would sit silent and the user has no idea what went wrong.
+  // BatonBot would sit silent and the user has no idea what went wrong.
   const STALL_TIMEOUT_MS = 60_000;
   const stallTimer = setTimeout(() => {
     if (receivedAnyOutput) return;
-    const stallMsg = `${agent.name} task ${taskIndex}: no output for ${Math.round(STALL_TIMEOUT_MS / 1000)}s after spawn. The agent may be hung. Common causes:\n  • Interactive prompt — run \`cline auth …\` once and start TaskReaper with TASKREAPER_NO_AUTO_AUTH=1\n  • Slow/networked filesystem (Parallels share / WSL mount) — use a native path\n  • Cline build mismatch — verify with \`cline --version\` in cmd.exe`;
+    const stallMsg = `${agent.name} task ${taskIndex}: no output for ${Math.round(STALL_TIMEOUT_MS / 1000)}s after spawn. The agent may be hung. Common causes:\n  • Interactive prompt — run \`cline auth …\` once and start BatonBot with BATONBOT_NO_AUTO_AUTH=1\n  • Slow/networked filesystem (Parallels share / WSL mount) — use a native path\n  • Cline build mismatch — verify with \`cline --version\` in cmd.exe`;
     console.warn(`[STALL] ${stallMsg}`);
     broadcastEvent(projectId, {
       type: 'stall',
@@ -1900,7 +1963,7 @@ function friendlyTaskError(rawError, projectId) {
   if (!looksLikeConnRefused) return raw;
 
   // Resolve the LLM endpoint this project would have used (same fallback
-  // chain the Reaper Code agent uses: project config → global → LM Studio).
+  // chain the Baton Code agent uses: project config → global → LM Studio).
   let apiBase = 'http://localhost:1234/v1';
   try {
     const state = getState();
@@ -1950,7 +2013,7 @@ function executeTaskWithAutoChain(projectId, taskIndex) {
 
   const cwd = project.workingDirectory || '.';
 
-  // Safety check: prevent agent from running in TaskReaper's directory
+  // Safety check: prevent agent from running in BatonBot's directory
   const validation = validateWorkingDirectory(cwd, projectId);
   if (!validation.safe) {
     console.error(`[ISOLATION] Blocked: ${validation.reason}`);
@@ -2003,7 +2066,7 @@ async function triggerAgentSingle(projectId, taskIndex) {
 
   const cwd = project.workingDirectory || '.';
 
-  // Safety check: prevent agent from running in TaskReaper's directory
+  // Safety check: prevent agent from running in BatonBot's directory
   const validation = validateWorkingDirectory(cwd, projectId);
   if (!validation.safe) {
     console.error(`[ISOLATION] Blocked: ${validation.reason}`);
@@ -2188,7 +2251,7 @@ app.post('/api/cline/headless', async (req, res) => {
 
   const cwd = workingDirectory || '.';
 
-  // Safety check: prevent headless agent from running in TaskReaper's directory
+  // Safety check: prevent headless agent from running in BatonBot's directory
   const headlessValidation = validateWorkingDirectory(cwd, projectId || 'headless');
   if (!headlessValidation.safe) {
     console.error(`[ISOLATION] Headless blocked: ${headlessValidation.reason}`);
@@ -2236,14 +2299,13 @@ app.post('/api/cline/headless', async (req, res) => {
   // built from the UI's Global Config so the user's Settings selection
   // (Anthropic / OpenAI / LM Studio) is the source of truth. Users who
   // prefer to manage Cline auth themselves via `cline auth …` can opt out
-  // with TASKREAPER_NO_AUTO_AUTH=1. See the regular Cline agent above.
+  // with BATONBOT_NO_AUTO_AUTH=1. See the regular Cline agent above.
   const headlessArgs = ['--json', '-y'];
-  const SKIP_INJECTION_HEADLESS = envFlag('NO_AUTO_AUTH') === '1';
-
+  const SKIP_INJECTION_HEADLESS = process.env.BATONBOT_NO_AUTO_AUTH === '1';
   if (!SKIP_INJECTION_HEADLESS && (headlessConfig.apiBase || headlessConfig.model)) {
 
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskreaper-headless-cline-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'batonbot-headless-cline-'));
     const settingsDir = path.join(tmpDir, 'data', 'settings');
     fs.mkdirSync(settingsDir, { recursive: true });
 
@@ -2286,7 +2348,7 @@ app.post('/api/cline/headless', async (req, res) => {
         [providerType]: {
           settings: providerSettings,
           updatedAt: new Date().toISOString(),
-          tokenSource: 'taskreaper'
+          tokenSource: 'batonbot'
         }
       }
     };
@@ -2304,8 +2366,8 @@ app.post('/api/cline/headless', async (req, res) => {
 
   console.log(`[HEADLESS CLINE] Command: ${cmdObj.command} ${cmdObj.args.join(' ')}`);
 
-  // Strip TaskReaper-specific env vars to prevent child apps from inheriting our configuration.
-  const { PORT: _taskreaperPort2, LM_STUDIO_URL: _lmStudioUrl2, ...inheritedEnvHeadless } = process.env;
+  // Strip BatonBot-specific env vars to prevent child apps from inheriting our configuration.
+  const { PORT: _batonbotPort2, LM_STUDIO_URL: _lmStudioUrl2, ...inheritedEnvHeadless } = process.env;
 
   // Cline's SDKs require API keys as environment variables regardless of
   // whether the key is also written to providers.json:
@@ -2605,10 +2667,10 @@ app.put('/api/projects/:id', (req, res) => {
  * GET /api/projects/:id/ingress-token
  * Returns the current bearer token for a project. This endpoint is
  * intentionally not itself token-protected — anyone who can reach the
- * TaskReaper HTTP server (typically only the local machine) can retrieve
+ * BatonBot HTTP server (typically only the local machine) can retrieve
  * the token. In practice this is used by the browser UI to display the
  * token for copy/paste. If you want to lock this down further, put
- * TaskReaper behind a reverse proxy that adds session auth.
+ * BatonBot behind a reverse proxy that adds session auth.
  */
 app.get('/api/projects/:id/ingress-token', (req, res) => {
   const { id: projectId } = req.params;
@@ -3520,7 +3582,7 @@ app.post('/api/telegram/test', async (req, res) => {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
     const resp = await axios.post(url, {
       chat_id: chatId,
-      text: '<b>✓ TaskReaper Telegram Connected!</b>\n\nYou can now send prompts to yourself via Telegram Messenger.',
+      text: '<b>✓ BatonBot Telegram Connected!</b>\n\nYou can now send prompts to yourself via Telegram Messenger.',
       parse_mode: 'HTML'
     });
 
@@ -3774,7 +3836,7 @@ app.post('/api/projects/:id/jira/forget-key', (req, res) => {
  * POST /api/projects/:id/jira/task-event   { taskIndex: 3, event: "to-queue" | "to-pending" }
  * v3.4 Lifecycle visibility: when a Jira-sourced card is triaged on the board
  * (moved PENDING↔QUEUE), post a comment on the Jira ticket so the reporter
- * sees the move without opening TaskReaper. Best-effort — never blocks the UI.
+ * sees the move without opening BatonBot. Best-effort — never blocks the UI.
  */
 app.post('/api/projects/:id/jira/task-event', (req, res) => {
   const { id: projectId } = req.params;
@@ -3783,8 +3845,8 @@ app.post('/api/projects/:id/jira/task-event', (req, res) => {
     return res.status(400).json({ ok: false, error: 'taskIndex (number) and event are required' });
   }
   const messages = {
-    'to-queue': '📋 TaskReaper moved this ticket into the run queue.',
-    'to-pending': '📋 TaskReaper moved this ticket back to triage.'
+    'to-queue': '📋 BatonBot moved this ticket into the run queue.',
+    'to-pending': '📋 BatonBot moved this ticket back to triage.'
   };
   const text = messages[event];
   if (!text) return res.status(400).json({ ok: false, error: `Unknown event: ${event}` });
@@ -3797,11 +3859,7 @@ app.post('/api/projects/:id/jira/task-event', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 
-  // Hand the baton relay its state accessors so it can persist handoffs.
-  baton.init({ getState, saveState });
-
   // Boot the Jira pollers for any projects that have jira enabled.
-
   // triggerOrchestrate delegates to the same /orchestrate endpoint the ▶
   // button uses (via internal HTTP) so all sequencing logic stays there.
   jiraAdapter.init({

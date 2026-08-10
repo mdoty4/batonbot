@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TaskReaper: Visual AI Agent Orchestrator</title>
+    <title>BatonBot: Visual AI Agent Orchestrator</title>
 
     <link rel="preconnect" href="https://rsms.me/">
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
@@ -22,7 +22,7 @@
 
         <!-- ── App Header ── -->
         <header class="app-header">
-            <h1>TaskReaper <span class="header-subtitle" id="sequence-status-text">Visual AI Agent Orchestrator</span></h1>
+            <h1>BatonBot <span class="header-subtitle" id="sequence-status-text">Visual AI Agent Orchestrator</span></h1>
             <nav class="primary-nav">
                 <button class="nav-btn active" data-tab="board">
                     <span class="nav-icon">📋</span>Board
@@ -76,12 +76,12 @@
                         </div>
                         <div class="palette-section-body">
                             <div class="palette-agent" draggable="true" data-agent="baton-code">
-                                <span class="palette-agent-name">Reaper Code</span>
-                                <button class="palette-add-btn" title="Add task with Reaper Code">＋</button>
+                                <span class="palette-agent-name">Baton Code</span>
+                                <button class="palette-add-btn" title="Add task with Baton Code">＋</button>
                             </div>
                             <div class="palette-agent" draggable="true" data-agent="baton-code-thinking">
-                                <span class="palette-agent-name">Reaper Code · Thinking</span>
-                                <button class="palette-add-btn" title="Add task with Reaper Code Thinking">＋</button>
+                                <span class="palette-agent-name">Baton Code · Thinking</span>
+                                <button class="palette-add-btn" title="Add task with Baton Code Thinking">＋</button>
                             </div>
                             <div class="palette-agent" draggable="true" data-agent="cline">
                                 <span class="palette-agent-name">Cline</span>
@@ -207,8 +207,8 @@
                                             <option value="auto">Auto (heuristic)</option>
                                             <option value="aider">Aider</option>
                                             <option value="cline">Cline</option>
-                                            <option value="baton-code">Reaper Code</option>
-                                            <option value="baton-code-thinking">Reaper Code (Thinking)</option>
+                                            <option value="baton-code">Baton Code</option>
+                                            <option value="baton-code-thinking">Baton Code (Thinking)</option>
                                         </select>
                                     </label>
                                 </div>
@@ -385,7 +385,7 @@
                         </div>
 
                         <div id="settings-tab-mcp" class="drawer-tab-content">
-                            <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure MCP (Model Context Protocol) servers to extend the Reaper Code agent with additional tools.</p>
+                            <p style="color: #666; font-size: 0.88rem; margin-top: 0; margin-bottom: 1rem;">Configure MCP (Model Context Protocol) servers to extend the Baton Code agent with additional tools.</p>
 
                             <div class="mcp-server-card" id="mcp-server-git">
                                 <div class="mcp-server-header">
@@ -402,7 +402,7 @@
                                     </label>
                                 </div>
                                 <div class="mcp-server-details">
-                                    <p class="mcp-server-description">Official Git MCP Server by Anthropic. Provides Git version control tools for the Reaper Code agent.</p>
+                                    <p class="mcp-server-description">Official Git MCP Server by Anthropic. Provides Git version control tools for the Baton Code agent.</p>
                                     <div class="mcp-server-config">
                                         <div class="config-section">
                                             <label style="display: block; font-weight: bold; margin-bottom: 0.4rem; font-size: 0.82rem;">Command</label>
@@ -493,13 +493,13 @@
                  <div class="config-section">
                      <label class="config-label">Working Directory</label>
                      <input type="text" id="editor-project-workingDir" class="config-input" placeholder="./my-app">
-                      <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Relative to TaskReaper root, or leave empty for current directory</small>
+                      <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Relative to BatonBot root, or leave empty for current directory</small>
                  </div>
 
                  <div class="config-section">
                      <label class="config-label">Default Agent</label>
                      <select id="editor-project-defaultAgent" class="config-select">
-                         <option value="baton-code">🟢 Reaper Code</option>
+                         <option value="baton-code">🟢 Baton Code</option>
                          <option value="aider">🟣 Aider</option>
                          <option value="cline">🟠 Cline</option>
                          <option value="telegram">📨 Telegram</option>
@@ -580,8 +580,8 @@
                      <label class="config-label">Agent for Jira tickets</label>
                      <select id="editor-jira-defaultAgent" class="config-select">
                          <option value="cline">🟠 Cline</option>
-                         <option value="baton-code">🟢 Reaper Code</option>
-                         <option value="baton-code-thinking">🟢 Reaper Code · Thinking</option>
+                         <option value="baton-code">🟢 Baton Code</option>
+                         <option value="baton-code-thinking">🟢 Baton Code · Thinking</option>
                          <option value="aider">🟣 Aider</option>
                      </select>
                  </div>
@@ -597,7 +597,7 @@
 
                  <div class="config-section">
                      <label class="config-label">Bot Account Email (optional)</label>
-                     <input type="text" id="editor-jira-botEmail" class="config-input" placeholder="taskreaper@yourco.com">
+                     <input type="text" id="editor-jira-botEmail" class="config-input" placeholder="batonbot@yourco.com">
                      <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">Tickets assigned to this account are still imported (the "assign-to-bot" workflow).</small>
                  </div>
 
@@ -610,7 +610,7 @@
                  <div class="config-section">
                      <label class="config-label" style="display:flex;align-items:center;gap:8px;">
                          <input type="checkbox" id="editor-jira-transitionOnDone" checked style="width:auto;">
-                         Move Jira ticket to Done when TaskReaper completes it
+                         Move Jira ticket to Done when BatonBot completes it
                      </label>
                      <small style="color: #888; display: block; margin-top: 4px; font-size: 0.76rem;">On success, the ticket auto-transitions to its workflow's Done status. Failed tasks stay put (the ❌ comment explains why).</small>
                  </div>
@@ -649,8 +649,8 @@
                  <div class="config-section">
                      <label class="config-label">Agent</label>
                      <select id="card-detail-agent-select" class="config-select">
-                         <option value="baton-code">Reaper Code</option>
-                         <option value="baton-code-thinking">Reaper Code · Thinking</option>
+                         <option value="baton-code">Baton Code</option>
+                         <option value="baton-code-thinking">Baton Code · Thinking</option>
                          <option value="cline">Cline</option>
                          <option value="aider">Aider</option>
                          <option value="telegram">Telegram</option>

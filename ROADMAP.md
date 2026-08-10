@@ -1,6 +1,6 @@
-# TaskReaper Roadmap
+# BatonBot Roadmap
 
-TaskReaper is a local-first kanban orchestrator for AI coding agents. This roadmap captures the direction — items may shift as we learn. Open an issue if something looks wrong-ordered for you.
+BatonBot is a local-first kanban orchestrator for AI coding agents. This roadmap captures the direction — items may shift as we learn. Open an issue if something looks wrong-ordered for you.
 
 **Vision:** A tool that is useful both to a developer interactively (kanban board, drag-and-drop pipelines) and to other programs and agents that call into it via API. Local-first, OpenAI-compatible-endpoint agnostic, runs against any local or cloud model.
 
@@ -20,7 +20,7 @@ TaskReaper is a local-first kanban orchestrator for AI coding agents. This roadm
 
 ## v3.3 "Ingress" *(shipped)*
 
-**Headline:** Anything can drop a task into TaskReaper — webhooks, files, scripts, other agents.
+**Headline:** Anything can drop a task into BatonBot — webhooks, files, scripts, other agents.
 
 - [x] Generic ingress webhook: `POST /api/projects/:id/ingest`
 - [x] Documented JSON Schema for the task format (`docs/task-schema.md`)
@@ -48,7 +48,7 @@ TaskReaper is a local-first kanban orchestrator for AI coding agents. This roadm
 
 **Headline:** Run the whole loop on a local model with zero cloud calls, and get durable, machine-readable results out of every card.
 
-- [ ] **Strict Local-Only Mode** (`TASKREAPER_LOCAL_ONLY=1`) — hard-fail any request that would leave the machine
+- [ ] **Strict Local-Only Mode** (`BATONBOT_LOCAL_ONLY=1`) — hard-fail any request that would leave the machine
 - [ ] **Results-Out** — each completed card writes `results/<cardId>.result.json` + `.result.md` into the project's repo
 - [ ] **Previous-task context for Cline/Aider** — chained cards can see what the prior card did
 
@@ -62,7 +62,7 @@ Items announced in earlier releases that haven't shipped yet. They're still plan
 - [ ] Linux portable variant *(from v3.2)*
 - [ ] 30-second install GIF *(from v3.2)*
 - [ ] Launch announcement post — HN, r/LocalLLaMA, X *(from v3.2)*
-- [ ] File-based ingress: drop a `*.task.md` or `*.task.json` in `.taskreaper/inbox/` *(from v3.3)*
+- [ ] File-based ingress: drop a `*.task.md` or `*.task.json` in `.batonbot/inbox/` *(from v3.3)*
 - [ ] Manual import UI for one-off bulk imports *(from v3.3)*
 
 ---
@@ -77,13 +77,13 @@ Headlines only. Items inside each will be detailed as we get closer.
 - **v3.7 — Mission Control.** Multi-project dashboard. Cost telemetry. Pipeline templates.
 - **v3.8 — Open Substrate.** MCP server. Auto-routing rules. Additional ingress adapters (Linear, Email, Slack, Moltbook). Jira two-way sync (board-created tasks mirrored to Jira, status transitions, re-sync of edited tickets).
 - **v3.9 — Machine Substrate.** API tokens. Outbound webhooks. OpenAPI spec. Headless mode.
-- **v3.10 — Maturity.** Per-repo `TASKREAPER.md` policy file. Architecture docs. Public comparison docs.
+- **v3.10 — Maturity.** Per-repo `BATONBOT.md` policy file. Architecture docs. Public comparison docs.
 
 ---
 
 ## Eventually — v4.0 "Beyond Code"
 
-When TaskReaper has clear traction in the coding niche, we'll broaden into general AI workflow agents (research, writing, monitoring). Not before — the dev story comes first.
+When BatonBot has clear traction in the coding niche, we'll broaden into general AI workflow agents (research, writing, monitoring). Not before — the dev story comes first.
 
 ---
 

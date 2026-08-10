@@ -47,7 +47,7 @@
 
              // Use task.agent directly — baton-code-thinking is a first-class agent
              const dropdownValue = task.agent || 'aider';
-             const agentLabels = { 'baton-code': 'REAPER-CODE', 'baton-code-thinking': 'REAPER-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+             const agentLabels = { 'baton-code': 'BATON-CODE', 'baton-code-thinking': 'BATON-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
              const agentLabel = agentLabels[dropdownValue] || 'AIDER';
 
             row.innerHTML = `
@@ -66,8 +66,8 @@
                         <span class="toggle-slider"></span>
                     </label>
                       <select class="agent-select ${dropdownValue}" data-prompt-index="${index}" title="Select agent for this task">
-                          <option value="baton-code" ${dropdownValue === 'baton-code' ? 'selected' : ''}>Reaper Code</option>
-                          <option value="baton-code-thinking" ${dropdownValue === 'baton-code-thinking' ? 'selected' : ''}>Reaper Code - Thinking</option>
+                          <option value="baton-code" ${dropdownValue === 'baton-code' ? 'selected' : ''}>Baton Code</option>
+                          <option value="baton-code-thinking" ${dropdownValue === 'baton-code-thinking' ? 'selected' : ''}>Baton Code - Thinking</option>
                           <option value="aider" ${dropdownValue === 'aider' ? 'selected' : ''}>Aider</option>
                           <option value="cline" ${dropdownValue === 'cline' ? 'selected' : ''}>Cline</option>
                           <option value="telegram" ${dropdownValue === 'telegram' ? 'selected' : ''}>Telegram</option>
@@ -858,7 +858,7 @@
             const badge = row.querySelector('.agent-badge');
             if (badge) {
                 badge.className = 'agent-badge ' + value;
-                const labels = { 'baton-code': 'REAPER-CODE', 'baton-code-thinking': 'REAPER-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+                const labels = { 'baton-code': 'BATON-CODE', 'baton-code-thinking': 'BATON-CODE-THINKING', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
                 badge.textContent = labels[value] || 'AIDER';
             }
             // Update the select visual
@@ -888,7 +888,7 @@
                     console.error('Failed to save agent change');
                     // Revert the UI if save failed
                     if (badge) {
-                        const labels = { 'baton-code': 'REAPER-CODE', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
+                        const labels = { 'baton-code': 'BATON-CODE', aider: 'AIDER', cline: 'CLINE', telegram: 'TELEGRAM' };
                         badge.className = 'agent-badge aider';
                         badge.textContent = 'AIDER';
                     }

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /*
- * Build a portable Windows x64 bundle of TaskReaper.
+ * Build a portable Windows x64 bundle of BatonBot.
  *
- * Output: dist/taskreaper-portable-win-x64/  (and a .zip alongside if `zip` is on PATH)
+ * Output: dist/batonbot-portable-win-x64/  (and a .zip alongside if `zip` is on PATH)
  *
  * Layout:
- *   taskreaper-portable-win-x64/
+ *   batonbot-portable-win-x64/
  *     ├── node.exe                 (pinned Node 20 LTS Windows x64)
- *     ├── app/                     (taskreaper.js, modules/, index.html, etc.)
+ *     ├── app/                     (batonbot.js, modules/, index.html, etc.)
  *     │   └── node_modules/        (prod-only, installed against pinned Node)
  *     ├── config/                  (empty — first-run will seed prompts.json)
- *     ├── start.cmd                (sets TASKREAPER_CONFIG_DIR, launches node, opens browser)
+ *     ├── start.cmd                (sets BATONBOT_CONFIG_DIR, launches node, opens browser)
  *     └── README.txt               (end-user instructions)
  *
  * Usage:
@@ -33,7 +33,7 @@ const nodeVersion = (() => {
 })();
 const SKIP_ZIP = args.includes('--skip-zip');
 
-const BUNDLE_NAME = 'taskreaper-portable-win-x64';
+const BUNDLE_NAME = 'batonbot-portable-win-x64';
 const BUNDLE_DIR = path.join(DIST_ROOT, BUNDLE_NAME);
 const APP_DIR = path.join(BUNDLE_DIR, 'app');
 const CONFIG_DIR = path.join(BUNDLE_DIR, 'config');
@@ -59,22 +59,22 @@ function writeStartCmd() {
     '@echo off',
     'setlocal',
     'cd /d "%~dp0"',
-    'set "TASKREAPER_CONFIG_DIR=%~dp0config"',
+    'set "BATONBOT_CONFIG_DIR=%~dp0config"',
     'set "PORT=4321"',
-    'if not exist "%TASKREAPER_CONFIG_DIR%" mkdir "%TASKREAPER_CONFIG_DIR%"',
+    'if not exist "%BATONBOT_CONFIG_DIR%" mkdir "%BATONBOT_CONFIG_DIR%"',
     'echo.',
-    'echo  TaskReaper Portable',
+    'echo  BatonBot Portable',
     'echo  =================',
-    'echo  Config dir: %TASKREAPER_CONFIG_DIR%',
+    'echo  Config dir: %BATONBOT_CONFIG_DIR%',
     'echo  Server:     http://localhost:%PORT%',
     'echo.',
-    'echo Starting server (this window must stay open while TaskReaper is running)...',
+    'echo Starting server (this window must stay open while BatonBot is running)...',
     'echo.',
-    'start "" /B "%~dp0node.exe" "%~dp0app\\taskreaper.js"',
+    'start "" /B "%~dp0node.exe" "%~dp0app\\batonbot.js"',
     'rem Give the server a moment to bind, then open the browser.',
     'powershell -NoProfile -Command "$ok=$false; for ($i=0; $i -lt 30; $i++) { try { Invoke-WebRequest -UseBasicParsing -Uri http://localhost:%PORT%/health -TimeoutSec 1 | Out-Null; $ok=$true; break } catch { Start-Sleep -Milliseconds 500 } }; if ($ok) { Start-Process \'http://localhost:%PORT%\' } else { Write-Host \'Server did not respond on /health within 15s. Check the log window.\' }"',
     'echo.',
-    'echo Press Ctrl+C in this window to stop TaskReaper.',
+    'echo Press Ctrl+C in this window to stop BatonBot.',
     'pause >nul',
     '',
   ].join('\r\n');
@@ -83,7 +83,7 @@ function writeStartCmd() {
 
 function writeReadme() {
   const content = [
-    'TaskReaper Portable (Windows x64)',
+    'BatonBot Portable (Windows x64)',
     '================================',
     '',
     'Quick start',

@@ -36,8 +36,8 @@
   let allSessions = [];               // cached session list for detail drawer history
 
   const AGENT_LABELS = {
-    'baton-code': 'Reaper Code',
-    'baton-code-thinking': 'Reaper Code · Thinking',
+    'baton-code': 'Baton Code',
+    'baton-code-thinking': 'Baton Code · Thinking',
     'cline': 'Cline',
     'aider': 'Aider',
     'telegram': 'Telegram'

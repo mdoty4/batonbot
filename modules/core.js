@@ -136,10 +136,10 @@
 
                   if (runningProjectName) {
                      statusEl.textContent = `Running for ${runningProjectName}`;
-                      document.title = `TaskReaper: Running for ${runningProjectName}`;
+                      document.title = `BatonBot: Running for ${runningProjectName}`;
                   } else {
                       statusEl.textContent = 'Task Orchestrator';
-                      document.title = 'TaskReaper: Task Orchestrator';
+                      document.title = 'BatonBot: Task Orchestrator';
                   }
              } catch (e) {
                  console.error('Error updating sequence status:', e);
