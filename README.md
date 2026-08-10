@@ -5,7 +5,7 @@ https://www.batonbot.com
 BatonBot is a local-first workflow orchestrator for chaining prompts, agents, and OpenAI-compatible LLM calls into repeatable pipelines.
 
 Project Status — August 8, 2026
-Task Reaper is currently on a temporary development pause. The project remains active, but I’m stepping away from active development for a bit before continuing testing and the next round of improvements.
+BatonBot is currently on a temporary development pause. The project remains active, but I’m stepping away from active development for a bit before continuing testing and the next round of improvements.
 The current code, demos, and documentation will remain available in the meantime.
 
 ## 🚀 Core Concept: From Chatting to Sequencing
